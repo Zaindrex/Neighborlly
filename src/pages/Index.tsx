@@ -364,16 +364,6 @@ const Index = () => {
       <div className="container mx-auto px-4 pb-16">
         {activeTab === 'discover' && (
           <div className="space-y-6">
-            {showFilters && (
-              <div className="mb-6">
-                <ServiceFilters
-                  onFiltersChange={handleFiltersChange}
-                  isVisible={showFilters}
-                  onToggle={() => setShowFilters(!showFilters)}
-                />
-              </div>
-            )}
-            
             {searchQuery && (
               <div className="mb-4">
                 <p className="text-gray-600">
