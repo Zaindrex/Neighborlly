@@ -17,12 +17,22 @@ import {
   Palette,
   Wrench,
   Clock,
-  DollarSign
+  DollarSign,
+  Filter,
+  User
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import UserProfile from '@/components/UserProfile';
+import ChatWindow from '@/components/ChatWindow';
+import PostServiceForm from '@/components/PostServiceForm';
+import ServiceFilters from '@/components/ServiceFilters';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState('discover');
+  const [selectedChat, setSelectedChat] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [filteredServices, setFilteredServices] = useState<any[]>([]);
 
   const nearbyServices = [
     {
@@ -37,7 +47,8 @@ const Index = () => {
       tags: ["React", "UI/UX", "Node.js"],
       description: "Full-stack developer with 5+ years experience. Specializing in modern web applications.",
       icon: Code,
-      color: "bg-blue-500"
+      color: "bg-blue-500",
+      category: "technology"
     },
     {
       id: 2,
@@ -51,7 +62,8 @@ const Index = () => {
       tags: ["Portrait", "Event", "Product"],
       description: "Professional photographer for all occasions. High-quality results guaranteed.",
       icon: Camera,
-      color: "bg-purple-500"
+      color: "bg-purple-500",
+      category: "creative"
     },
     {
       id: 3,
@@ -65,7 +77,8 @@ const Index = () => {
       tags: ["Plumbing", "Electrical", "Handyman"],
       description: "Licensed contractor with 10+ years experience in home repairs and maintenance.",
       icon: Wrench,
-      color: "bg-green-500"
+      color: "bg-green-500",
+      category: "home-services"
     },
     {
       id: 4,
@@ -79,7 +92,8 @@ const Index = () => {
       tags: ["Logo Design", "Branding", "Print"],
       description: "Creative designer helping businesses build their visual identity.",
       icon: Palette,
-      color: "bg-orange-500"
+      color: "bg-orange-500",
+      category: "creative"
     }
   ];
 
@@ -113,6 +127,62 @@ const Index = () => {
     }
   ];
 
+  // Search and filter logic
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    filterServices(query, {});
+  };
+
+  const handleFiltersChange = (filters: any) => {
+    filterServices(searchQuery, filters);
+  };
+
+  const filterServices = (query: string, filters: any) => {
+    let filtered = nearbyServices;
+
+    // Search by title, provider, description, or tags
+    if (query.trim()) {
+      filtered = filtered.filter(service =>
+        service.title.toLowerCase().includes(query.toLowerCase()) ||
+        service.provider.toLowerCase().includes(query.toLowerCase()) ||
+        service.description.toLowerCase().includes(query.toLowerCase()) ||
+        service.tags.some(tag => tag.toLowerCase().includes(query.toLowerCase()))
+      );
+    }
+
+    // Apply category filter
+    if (filters.category && filters.category !== 'all') {
+      filtered = filtered.filter(service => service.category === filters.category);
+    }
+
+    // Apply rating filter
+    if (filters.rating && filters.rating > 0) {
+      filtered = filtered.filter(service => service.rating >= filters.rating);
+    }
+
+    // Apply tag filters
+    if (filters.tags && filters.tags.length > 0) {
+      filtered = filtered.filter(service =>
+        filters.tags.some((tag: string) =>
+          service.tags.some(serviceTag => 
+            serviceTag.toLowerCase().includes(tag.toLowerCase())
+          )
+        )
+      );
+    }
+
+    setFilteredServices(filtered);
+    console.log('Filtered services:', filtered);
+  };
+
+  const handleChatClick = (service: any) => {
+    console.log('Starting chat with:', service.provider);
+    setSelectedChat(service.provider);
+    setActiveTab('chats');
+  };
+
+  const servicesToShow = searchQuery || showFilters ? filteredServices : nearbyServices;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Header */}
@@ -134,10 +204,16 @@ const Index = () => {
                   3
                 </span>
               </div>
-              <Avatar className="w-8 h-8">
-                <AvatarImage src="/api/placeholder/32/32" />
-                <AvatarFallback>YO</AvatarFallback>
-              </Avatar>
+              <Button
+                variant="ghost"
+                onClick={() => setActiveTab('profile')}
+                className="p-2"
+              >
+                <Avatar className="w-8 h-8">
+                  <AvatarImage src="/api/placeholder/32/32" />
+                  <AvatarFallback>YO</AvatarFallback>
+                </Avatar>
+              </Button>
             </div>
           </div>
         </div>
@@ -165,11 +241,20 @@ const Index = () => {
               <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
               <Input 
                 placeholder="Search for services near you..."
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
                 className="pl-12 pr-4 py-4 text-lg rounded-2xl border-2 border-gray-200 focus:border-neighborlly-purple transition-colors"
               />
-              <Button className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-gradient-neighborlly hover:opacity-90 rounded-xl">
-                Search
-              </Button>
+              <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex space-x-2">
+                <ServiceFilters
+                  onFiltersChange={handleFiltersChange}
+                  isVisible={showFilters}
+                  onToggle={() => setShowFilters(!showFilters)}
+                />
+                <Button className="bg-gradient-neighborlly hover:opacity-90 rounded-xl">
+                  Search
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -241,6 +326,18 @@ const Index = () => {
                 <Plus className="w-4 h-4 mr-2" />
                 Post Service
               </Button>
+              <Button
+                variant={activeTab === 'profile' ? 'default' : 'ghost'}
+                onClick={() => setActiveTab('profile')}
+                className={`rounded-xl px-6 py-2 ${
+                  activeTab === 'profile' 
+                    ? 'bg-gradient-neighborlly text-white' 
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <User className="w-4 h-4 mr-2" />
+                Profile
+              </Button>
             </div>
           </div>
         </div>
@@ -249,159 +346,170 @@ const Index = () => {
       {/* Content Area */}
       <div className="container mx-auto px-4 pb-16">
         {activeTab === 'discover' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {nearbyServices.map((service) => {
-              const IconComponent = service.icon;
-              return (
-                <Card key={service.id} className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2 bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                  <CardHeader className="pb-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className={`w-12 h-12 ${service.color} rounded-xl flex items-center justify-center`}>
-                          <IconComponent className="w-6 h-6 text-white" />
+          <div className="space-y-6">
+            {showFilters && (
+              <div className="mb-6">
+                <ServiceFilters
+                  onFiltersChange={handleFiltersChange}
+                  isVisible={showFilters}
+                  onToggle={() => setShowFilters(!showFilters)}
+                />
+              </div>
+            )}
+            
+            {searchQuery && (
+              <div className="mb-4">
+                <p className="text-gray-600">
+                  {servicesToShow.length} results for "{searchQuery}"
+                </p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {servicesToShow.map((service) => {
+                const IconComponent = service.icon;
+                return (
+                  <Card key={service.id} className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2 bg-white/80 backdrop-blur-sm border-0 shadow-lg">
+                    <CardHeader className="pb-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div className={`w-12 h-12 ${service.color} rounded-xl flex items-center justify-center`}>
+                            <IconComponent className="w-6 h-6 text-white" />
+                          </div>
+                          <div>
+                            <CardTitle className="text-lg group-hover:text-neighborlly-purple transition-colors">
+                              {service.title}
+                            </CardTitle>
+                            <p className="text-sm text-gray-600">{service.provider}</p>
+                          </div>
                         </div>
+                        <div className="flex items-center space-x-1">
+                          <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                          <span className="text-sm font-medium">{service.rating}</span>
+                          <span className="text-xs text-gray-500">({service.reviews})</span>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <CardDescription className="mb-4 text-gray-600">
+                        {service.description}
+                      </CardDescription>
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        {service.tags.map((tag) => (
+                          <Badge key={tag} variant="secondary" className="bg-gray-100 text-gray-700 hover:bg-gray-200">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between">
                         <div>
-                          <CardTitle className="text-lg group-hover:text-neighborlly-purple transition-colors">
-                            {service.title}
-                          </CardTitle>
-                          <p className="text-sm text-gray-600">{service.provider}</p>
+                          <div className="flex items-center text-sm text-gray-500 mb-1">
+                            <MapPin className="w-3 h-3 mr-1" />
+                            {service.distance}
+                          </div>
+                          <div className="flex items-center text-lg font-bold text-neighborlly-purple">
+                            <DollarSign className="w-4 h-4 mr-1" />
+                            {service.price.replace('$', '')}
+                          </div>
                         </div>
+                        <Button 
+                          className="bg-gradient-neighborlly hover:opacity-90 rounded-xl"
+                          onClick={() => handleChatClick(service)}
+                        >
+                          <MessageCircle className="w-4 h-4 mr-2" />
+                          Chat
+                        </Button>
                       </div>
-                      <div className="flex items-center space-x-1">
-                        <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                        <span className="text-sm font-medium">{service.rating}</span>
-                        <span className="text-xs text-gray-500">({service.reviews})</span>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription className="mb-4 text-gray-600">
-                      {service.description}
-                    </CardDescription>
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {service.tags.map((tag) => (
-                        <Badge key={tag} variant="secondary" className="bg-gray-100 text-gray-700 hover:bg-gray-200">
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center text-sm text-gray-500 mb-1">
-                          <MapPin className="w-3 h-3 mr-1" />
-                          {service.distance}
-                        </div>
-                        <div className="flex items-center text-lg font-bold text-neighborlly-purple">
-                          <DollarSign className="w-4 h-4 mr-1" />
-                          {service.price.replace('$', '')}
-                        </div>
-                      </div>
-                      <Button className="bg-gradient-neighborlly hover:opacity-90 rounded-xl">
-                        <MessageCircle className="w-4 h-4 mr-2" />
-                        Chat
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+
+            {servicesToShow.length === 0 && searchQuery && (
+              <div className="text-center py-12">
+                <p className="text-gray-500 text-lg">No services found matching your search.</p>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setFilteredServices([]);
+                  }}
+                  className="mt-4"
+                >
+                  Clear Search
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
         {activeTab === 'chats' && (
-          <div className="max-w-2xl mx-auto">
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <MessageCircle className="w-5 h-5 mr-2 text-neighborlly-purple" />
-                  Recent Conversations
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                {recentChats.map((chat) => (
-                  <div key={chat.id} className="flex items-center p-4 hover:bg-gray-50 transition-colors cursor-pointer border-b last:border-b-0">
-                    <div className="relative">
-                      <Avatar className="w-12 h-12">
-                        <AvatarImage src={chat.avatar} />
-                        <AvatarFallback>{chat.name.charAt(0)}</AvatarFallback>
-                      </Avatar>
-                      {chat.online && (
-                        <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white"></div>
-                      )}
-                    </div>
-                    <div className="ml-4 flex-1">
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-medium">{chat.name}</h4>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-xs text-gray-500">{chat.time}</span>
-                          {chat.unread > 0 && (
-                            <Badge className="bg-neighborlly-purple text-white px-2 py-1 text-xs">
-                              {chat.unread}
-                            </Badge>
-                          )}
-                        </div>
+          <div className="max-w-4xl mx-auto">
+            {selectedChat ? (
+              <ChatWindow
+                chatId={selectedChat}
+                recipientName={selectedChat}
+                recipientAvatar="/api/placeholder/40/40"
+                onBack={() => setSelectedChat(null)}
+              />
+            ) : (
+              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <MessageCircle className="w-5 h-5 mr-2 text-neighborlly-purple" />
+                    Recent Conversations
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {recentChats.map((chat) => (
+                    <div 
+                      key={chat.id} 
+                      className="flex items-center p-4 hover:bg-gray-50 transition-colors cursor-pointer border-b last:border-b-0"
+                      onClick={() => setSelectedChat(chat.name)}
+                    >
+                      <div className="relative">
+                        <Avatar className="w-12 h-12">
+                          <AvatarImage src={chat.avatar} />
+                          <AvatarFallback>{chat.name.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        {chat.online && (
+                          <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white"></div>
+                        )}
                       </div>
-                      <p className="text-sm text-gray-600 truncate">{chat.lastMessage}</p>
+                      <div className="ml-4 flex-1">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-medium">{chat.name}</h4>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-xs text-gray-500">{chat.time}</span>
+                            {chat.unread > 0 && (
+                              <Badge className="bg-neighborlly-purple text-white px-2 py-1 text-xs">
+                                {chat.unread}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-sm text-gray-600 truncate">{chat.lastMessage}</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
           </div>
         )}
 
-        {activeTab === 'post' && (
-          <div className="max-w-2xl mx-auto">
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Plus className="w-5 h-5 mr-2 text-neighborlly-purple" />
-                  Post Your Service
-                </CardTitle>
-                <CardDescription>
-                  Share your skills with neighbors nearby and start earning today!
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium mb-2">Service Title</label>
-                  <Input placeholder="e.g., Web Development, Photography, Home Repairs" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2">Description</label>
-                  <textarea 
-                    className="w-full p-3 border rounded-xl resize-none h-24 focus:ring-2 focus:ring-neighborlly-purple focus:border-transparent"
-                    placeholder="Describe your service and what makes you unique..."
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Price</label>
-                    <Input placeholder="$50/hour" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Category</label>
-                    <select className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-neighborlly-purple focus:border-transparent">
-                      <option>Technology</option>
-                      <option>Creative</option>
-                      <option>Home Services</option>
-                      <option>Business</option>
-                      <option>Other</option>
-                    </select>
-                  </div>
-                </div>
-                <Button className="w-full bg-gradient-neighborlly hover:opacity-90 py-3 rounded-xl text-lg">
-                  Post Service
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+        {activeTab === 'post' && <PostServiceForm />}
+
+        {activeTab === 'profile' && <UserProfile />}
       </div>
 
       {/* Floating Action Button */}
       <div className="fixed bottom-6 right-6">
-        <Button className="w-14 h-14 rounded-full bg-gradient-neighborlly hover:opacity-90 shadow-lg">
+        <Button 
+          className="w-14 h-14 rounded-full bg-gradient-neighborlly hover:opacity-90 shadow-lg"
+          onClick={() => setActiveTab('post')}
+        >
           <Plus className="w-6 h-6" />
         </Button>
       </div>
