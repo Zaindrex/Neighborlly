@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,6 +25,7 @@ import UserProfile from '@/components/UserProfile';
 import ChatWindow from '@/components/ChatWindow';
 import PostServiceForm from '@/components/PostServiceForm';
 import ServiceFilters from '@/components/ServiceFilters';
+import ContactsList from '@/components/ContactsList';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState('discover');
@@ -33,6 +33,7 @@ const Index = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [filteredServices, setFilteredServices] = useState<any[]>([]);
+  const [showContactsList, setShowContactsList] = useState(false);
 
   const nearbyServices = [
     {
@@ -181,6 +182,18 @@ const Index = () => {
     setActiveTab('chats');
   };
 
+  const handleHeaderChatClick = () => {
+    console.log('Header chat button clicked');
+    setShowContactsList(true);
+    setActiveTab('chats');
+  };
+
+  const handleContactSelect = (contact: any) => {
+    console.log('Selected contact:', contact.name);
+    setSelectedChat(contact.name);
+    setShowContactsList(false);
+  };
+
   const servicesToShow = searchQuery || showFilters ? filteredServices : nearbyServices;
 
   return (
@@ -198,12 +211,16 @@ const Index = () => {
               </h1>
             </div>
             <div className="flex items-center space-x-4">
-              <div className="relative">
+              <Button
+                variant="ghost"
+                onClick={handleHeaderChatClick}
+                className="relative p-2"
+              >
                 <MessageCircle className="w-6 h-6 text-gray-600" />
                 <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
                   3
                 </span>
-              </div>
+              </Button>
               <Button
                 variant="ghost"
                 onClick={() => setActiveTab('profile')}
@@ -453,13 +470,28 @@ const Index = () => {
                 recipientAvatar="/api/placeholder/40/40"
                 onBack={() => setSelectedChat(null)}
               />
+            ) : showContactsList ? (
+              <ContactsList
+                onContactSelect={handleContactSelect}
+                onBack={() => setShowContactsList(false)}
+              />
             ) : (
               <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
                 <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <MessageCircle className="w-5 h-5 mr-2 text-neighborlly-purple" />
-                    Recent Conversations
-                  </CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center">
+                      <MessageCircle className="w-5 h-5 mr-2 text-neighborlly-purple" />
+                      Recent Conversations
+                    </CardTitle>
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowContactsList(true)}
+                      className="rounded-xl"
+                    >
+                      <Users className="w-4 h-4 mr-2" />
+                      Contacts
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="p-0">
                   {recentChats.map((chat) => (
