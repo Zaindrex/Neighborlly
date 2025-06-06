@@ -36,12 +36,13 @@ const Index = () => {
   const [filteredServices, setFilteredServices] = useState<any[]>([]);
   const [showContactsList, setShowContactsList] = useState(false);
 
-  // Empty arrays for services and chats (no default data)
+  // Empty arrays - real data would come from database/API
   const nearbyServices: any[] = [];
-  const recentChats: any[] = [];
+  const recentChats: any[] = []; // Removed fake chats
+  const [userChats, setUserChats] = useState<any[]>([]); // Real chats from authenticated users
 
-  // Calculate unread message count
-  const unreadCount = recentChats.reduce((total, chat) => total + chat.unread, 0);
+  // Calculate unread message count from real chats
+  const unreadCount = userChats.reduce((total, chat) => total + chat.unread, 0);
 
   // Search and filter logic
   const handleSearch = (query: string) => {
@@ -107,6 +108,12 @@ const Index = () => {
     console.log('Selected contact:', contact.name);
     setSelectedChat(contact.name);
     setShowContactsList(false);
+  };
+
+  const handleDeleteChat = (chatId: string) => {
+    console.log('Deleting chat:', chatId);
+    setUserChats(prevChats => prevChats.filter(chat => chat.id !== chatId));
+    // TODO: Implement actual chat deletion in database
   };
 
   const servicesToShow = searchQuery || showFilters ? filteredServices : nearbyServices;
@@ -389,6 +396,7 @@ const Index = () => {
                 recipientName={selectedChat}
                 recipientAvatar="/api/placeholder/40/40"
                 onBack={() => setSelectedChat(null)}
+                onDeleteChat={handleDeleteChat}
               />
             ) : showContactsList ? (
               <ContactsList
@@ -414,14 +422,14 @@ const Index = () => {
                   </div>
                 </CardHeader>
                 <CardContent className="p-6">
-                  {recentChats.length === 0 ? (
+                  {userChats.length === 0 ? (
                     <div className="text-center py-8">
                       <MessageCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
                       <p className="text-gray-500 text-lg mb-2">No conversations yet</p>
                       <p className="text-gray-400 text-sm">Start chatting with service providers to see your conversations here.</p>
                     </div>
                   ) : (
-                    recentChats.map((chat) => (
+                    userChats.map((chat) => (
                       <div 
                         key={chat.id} 
                         className="flex items-center p-4 hover:bg-gray-50 transition-colors cursor-pointer border-b last:border-b-0"

@@ -4,7 +4,13 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Send, Phone, Video, MoreVertical, ArrowLeft } from 'lucide-react';
+import { Send, MoreVertical, ArrowLeft, Trash2 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface Message {
   id: string;
@@ -19,32 +25,12 @@ interface ChatWindowProps {
   recipientName: string;
   recipientAvatar: string;
   onBack: () => void;
+  onDeleteChat?: (chatId: string) => void;
 }
 
-const ChatWindow = ({ chatId, recipientName, recipientAvatar, onBack }: ChatWindowProps) => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      senderId: 'other',
-      content: 'Hi! I saw your web development service. Can we discuss the project?',
-      timestamp: new Date(Date.now() - 1000 * 60 * 30),
-      isRead: true
-    },
-    {
-      id: '2',
-      senderId: 'me',
-      content: 'Of course! I\'d be happy to help. What kind of project are you working on?',
-      timestamp: new Date(Date.now() - 1000 * 60 * 25),
-      isRead: true
-    },
-    {
-      id: '3',
-      senderId: 'other',
-      content: 'I need a responsive e-commerce website. How much would that cost?',
-      timestamp: new Date(Date.now() - 1000 * 60 * 20),
-      isRead: true
-    }
-  ]);
+const ChatWindow = ({ chatId, recipientName, recipientAvatar, onBack, onDeleteChat }: ChatWindowProps) => {
+  // Start with empty messages array - real messages would come from database
+  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -69,7 +55,7 @@ const ChatWindow = ({ chatId, recipientName, recipientAvatar, onBack }: ChatWind
       setMessages([...messages, message]);
       setNewMessage('');
       console.log('Sending message:', message);
-      // TODO: Implement actual message sending
+      // TODO: Implement actual message sending to database
     }
   };
 
@@ -80,9 +66,19 @@ const ChatWindow = ({ chatId, recipientName, recipientAvatar, onBack }: ChatWind
     }
   };
 
+  const handleDeleteChat = () => {
+    if (chatId && onDeleteChat) {
+      onDeleteChat(chatId);
+      onBack();
+    }
+  };
+
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
+
+  // Mock online status - would come from real-time presence in production
+  const isOnline = Math.random() > 0.5; // Random for demo, replace with real presence
 
   return (
     <Card className="max-w-4xl mx-auto bg-white/80 backdrop-blur-sm border-0 shadow-lg h-[600px] flex flex-col">
@@ -98,46 +94,58 @@ const ChatWindow = ({ chatId, recipientName, recipientAvatar, onBack }: ChatWind
             </Avatar>
             <div>
               <CardTitle className="text-lg">{recipientName}</CardTitle>
-              <p className="text-sm text-green-500">Online</p>
+              <p className={`text-sm ${isOnline ? 'text-green-500' : 'text-gray-500'}`}>
+                {isOnline ? 'Online' : 'Offline'}
+              </p>
             </div>
           </div>
           <div className="flex items-center space-x-2">
-            <Button variant="ghost" size="sm" className="rounded-xl">
-              <Phone className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" size="sm" className="rounded-xl">
-              <Video className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" size="sm" className="rounded-xl">
-              <MoreVertical className="w-4 h-4" />
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="rounded-xl">
+                  <MoreVertical className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onClick={handleDeleteChat} className="text-red-600">
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete Chat
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </CardHeader>
       <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex ${message.senderId === 'me' ? 'justify-end' : 'justify-start'}`}
-          >
+        {messages.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-gray-500">No messages yet. Start the conversation!</p>
+          </div>
+        ) : (
+          messages.map((message) => (
             <div
-              className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${
-                message.senderId === 'me'
-                  ? 'bg-gradient-neighborlly text-white'
-                  : 'bg-gray-100 text-gray-900'
-              }`}
+              key={message.id}
+              className={`flex ${message.senderId === 'me' ? 'justify-end' : 'justify-start'}`}
             >
-              <p className="text-sm">{message.content}</p>
-              <p
-                className={`text-xs mt-1 ${
-                  message.senderId === 'me' ? 'text-white/70' : 'text-gray-500'
+              <div
+                className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${
+                  message.senderId === 'me'
+                    ? 'bg-gradient-neighborlly text-white'
+                    : 'bg-gray-100 text-gray-900'
                 }`}
               >
-                {formatTime(message.timestamp)}
-              </p>
+                <p className="text-sm">{message.content}</p>
+                <p
+                  className={`text-xs mt-1 ${
+                    message.senderId === 'me' ? 'text-white/70' : 'text-gray-500'
+                  }`}
+                >
+                  {formatTime(message.timestamp)}
+                </p>
+              </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
         {isTyping && (
           <div className="flex justify-start">
             <div className="bg-gray-100 px-4 py-2 rounded-2xl">
