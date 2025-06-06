@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -35,98 +36,12 @@ const Index = () => {
   const [filteredServices, setFilteredServices] = useState<any[]>([]);
   const [showContactsList, setShowContactsList] = useState(false);
 
-  const nearbyServices = [
-    {
-      id: 1,
-      title: "Web Development & Design",
-      provider: "Sarah Chen",
-      avatar: "/api/placeholder/40/40",
-      rating: 4.9,
-      reviews: 23,
-      price: "$50/hour",
-      distance: "0.8km away",
-      tags: ["React", "UI/UX", "Node.js"],
-      description: "Full-stack developer with 5+ years experience. Specializing in modern web applications.",
-      icon: Code,
-      color: "bg-blue-500",
-      category: "technology"
-    },
-    {
-      id: 2,
-      title: "Photography Services",
-      provider: "Mike Johnson",
-      avatar: "/api/placeholder/40/40",
-      rating: 4.8,
-      reviews: 31,
-      price: "$80/session",
-      distance: "1.2km away",
-      tags: ["Portrait", "Event", "Product"],
-      description: "Professional photographer for all occasions. High-quality results guaranteed.",
-      icon: Camera,
-      color: "bg-purple-500",
-      category: "creative"
-    },
-    {
-      id: 3,
-      title: "Home Repairs & Maintenance",
-      provider: "Alex Rodriguez",
-      avatar: "/api/placeholder/40/40",
-      rating: 5.0,
-      reviews: 18,
-      price: "$35/hour",
-      distance: "2.1km away",
-      tags: ["Plumbing", "Electrical", "Handyman"],
-      description: "Licensed contractor with 10+ years experience in home repairs and maintenance.",
-      icon: Wrench,
-      color: "bg-green-500",
-      category: "home-services"
-    },
-    {
-      id: 4,
-      title: "Graphic Design & Branding",
-      provider: "Emma Wilson",
-      avatar: "/api/placeholder/40/40",
-      rating: 4.7,
-      reviews: 28,
-      price: "$45/hour",
-      distance: "3.4km away",
-      tags: ["Logo Design", "Branding", "Print"],
-      description: "Creative designer helping businesses build their visual identity.",
-      icon: Palette,
-      color: "bg-orange-500",
-      category: "creative"
-    }
-  ];
+  // Empty arrays for services and chats (no default data)
+  const nearbyServices: any[] = [];
+  const recentChats: any[] = [];
 
-  const recentChats = [
-    {
-      id: 1,
-      name: "Sarah Chen",
-      lastMessage: "Perfect! When can we start the project?",
-      time: "2m ago",
-      unread: 2,
-      avatar: "/api/placeholder/32/32",
-      online: true
-    },
-    {
-      id: 2,
-      name: "Mike Johnson",
-      lastMessage: "I've uploaded the edited photos to...",
-      time: "1h ago",
-      unread: 0,
-      avatar: "/api/placeholder/32/32",
-      online: false
-    },
-    {
-      id: 3,
-      name: "Alex Rodriguez",
-      lastMessage: "The repair work is completed!",
-      time: "3h ago",
-      unread: 1,
-      avatar: "/api/placeholder/32/32",
-      online: true
-    }
-  ];
+  // Calculate unread message count
+  const unreadCount = recentChats.reduce((total, chat) => total + chat.unread, 0);
 
   // Search and filter logic
   const handleSearch = (query: string) => {
@@ -217,9 +132,11 @@ const Index = () => {
                 className="relative p-2"
               >
                 <MessageCircle className="w-6 h-6 text-gray-600" />
-                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                  3
-                </span>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                    {unreadCount}
+                  </span>
+                )}
               </Button>
               <Button
                 variant="ghost"
@@ -372,6 +289,20 @@ const Index = () => {
               </div>
             )}
 
+            {servicesToShow.length === 0 && !searchQuery && (
+              <div className="text-center py-12">
+                <p className="text-gray-500 text-lg mb-4">No services available yet.</p>
+                <p className="text-gray-400">Be the first to post a service in your area!</p>
+                <Button
+                  onClick={() => setActiveTab('post')}
+                  className="mt-4 bg-gradient-neighborlly hover:opacity-90 rounded-xl"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Post Service
+                </Button>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {servicesToShow.map((service) => {
                 const IconComponent = service.icon;
@@ -415,8 +346,7 @@ const Index = () => {
                             {service.distance}
                           </div>
                           <div className="flex items-center text-lg font-bold text-neighborlly-purple">
-                            <DollarSign className="w-4 h-4 mr-1" />
-                            {service.price.replace('$', '')}
+                            ₹{service.price?.replace('$', '').replace('/hour', '')}/hour
                           </div>
                         </div>
                         <Button 
@@ -483,38 +413,46 @@ const Index = () => {
                     </Button>
                   </div>
                 </CardHeader>
-                <CardContent className="p-0">
-                  {recentChats.map((chat) => (
-                    <div 
-                      key={chat.id} 
-                      className="flex items-center p-4 hover:bg-gray-50 transition-colors cursor-pointer border-b last:border-b-0"
-                      onClick={() => setSelectedChat(chat.name)}
-                    >
-                      <div className="relative">
-                        <Avatar className="w-12 h-12">
-                          <AvatarImage src={chat.avatar} />
-                          <AvatarFallback>{chat.name.charAt(0)}</AvatarFallback>
-                        </Avatar>
-                        {chat.online && (
-                          <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white"></div>
-                        )}
-                      </div>
-                      <div className="ml-4 flex-1">
-                        <div className="flex items-center justify-between">
-                          <h4 className="font-medium">{chat.name}</h4>
-                          <div className="flex items-center space-x-2">
-                            <span className="text-xs text-gray-500">{chat.time}</span>
-                            {chat.unread > 0 && (
-                              <Badge className="bg-neighborlly-purple text-white px-2 py-1 text-xs">
-                                {chat.unread}
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                        <p className="text-sm text-gray-600 truncate">{chat.lastMessage}</p>
-                      </div>
+                <CardContent className="p-6">
+                  {recentChats.length === 0 ? (
+                    <div className="text-center py-8">
+                      <MessageCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                      <p className="text-gray-500 text-lg mb-2">No conversations yet</p>
+                      <p className="text-gray-400 text-sm">Start chatting with service providers to see your conversations here.</p>
                     </div>
-                  ))}
+                  ) : (
+                    recentChats.map((chat) => (
+                      <div 
+                        key={chat.id} 
+                        className="flex items-center p-4 hover:bg-gray-50 transition-colors cursor-pointer border-b last:border-b-0"
+                        onClick={() => setSelectedChat(chat.name)}
+                      >
+                        <div className="relative">
+                          <Avatar className="w-12 h-12">
+                            <AvatarImage src={chat.avatar} />
+                            <AvatarFallback>{chat.name.charAt(0)}</AvatarFallback>
+                          </Avatar>
+                          {chat.online && (
+                            <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white"></div>
+                          )}
+                        </div>
+                        <div className="ml-4 flex-1">
+                          <div className="flex items-center justify-between">
+                            <h4 className="font-medium">{chat.name}</h4>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs text-gray-500">{chat.time}</span>
+                              {chat.unread > 0 && (
+                                <Badge className="bg-neighborlly-purple text-white px-2 py-1 text-xs">
+                                  {chat.unread}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-sm text-gray-600 truncate">{chat.lastMessage}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </CardContent>
               </Card>
             )}
