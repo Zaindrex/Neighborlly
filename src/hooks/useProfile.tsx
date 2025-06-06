@@ -28,12 +28,36 @@ export const useProfile = () => {
   useEffect(() => {
     if (user) {
       fetchProfile();
-      subscribeToProfileChanges();
+      
+      // Set up real-time subscription
+      const channel = supabase
+        .channel(`profile-changes-${user.id}`) // Use unique channel name per user
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'profiles',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log('Profile updated:', payload);
+            if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+              setProfile(payload.new as Profile);
+            }
+          }
+        )
+        .subscribe();
+
+      // Cleanup function to remove subscription
+      return () => {
+        supabase.removeChannel(channel);
+      };
     } else {
       setProfile(null);
       setLoading(false);
     }
-  }, [user]);
+  }, [user?.id]); // Only depend on user.id to avoid unnecessary re-subscriptions
 
   const fetchProfile = async () => {
     if (!user) return;
@@ -60,33 +84,6 @@ export const useProfile = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const subscribeToProfileChanges = () => {
-    if (!user) return;
-
-    const channel = supabase
-      .channel('profile-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'profiles',
-          filter: `user_id=eq.${user.id}`,
-        },
-        (payload) => {
-          console.log('Profile updated:', payload);
-          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
-            setProfile(payload.new as Profile);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   };
 
   const updateProfile = async (updates: Partial<Omit<Profile, 'id' | 'user_id' | 'created_at' | 'updated_at'>>) => {
