@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -12,84 +12,208 @@ import {
   Search, 
   Plus,
   Briefcase,
-  Camera,
   Code,
-  Palette,
-  Wrench,
-  Clock,
-  DollarSign,
   Filter,
-  User
+  User,
+  Navigation,
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { useToast } from '@/hooks/use-toast';
 import UserProfile from '@/components/UserProfile';
 import ChatWindow from '@/components/ChatWindow';
 import PostServiceForm from '@/components/PostServiceForm';
 import ServiceFilters from '@/components/ServiceFilters';
 import ContactsList from '@/components/ContactsList';
+import LocationPermission from '@/components/LocationPermission';
+import GeofenceMap from '@/components/GeofenceMap';
+import { geolocationService, Location, Job } from '@/services/geolocationService';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState('discover');
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
-  const [filteredServices, setFilteredServices] = useState<any[]>([]);
   const [showContactsList, setShowContactsList] = useState(false);
+  const [showMap, setShowMap] = useState(false);
+  
+  // Geolocation states
+  const [userLocation, setUserLocation] = useState<Location | null>(null);
+  const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [isLoadingLocation, setIsLoadingLocation] = useState(false);
+  
+  // Jobs states
+  const [allJobs, setAllJobs] = useState<Job[]>([]);
+  const [filteredJobs, setFilteredJobs] = useState<Job[]>([]);
+  const [outOfRangeJobs, setOutOfRangeJobs] = useState<Job[]>([]);
+  const [lastLocationUpdate, setLastLocationUpdate] = useState<number>(0);
 
-  // Empty arrays - real data would come from database/API
-  const nearbyServices: any[] = [];
-  const recentChats: any[] = []; // Removed fake chats
-  const [userChats, setUserChats] = useState<any[]>([]); // Real chats from authenticated users
+  const { toast } = useToast();
+
+  // Empty chats array - real data would come from database/API
+  const [userChats, setUserChats] = useState<any[]>([]);
 
   // Calculate unread message count from real chats
   const unreadCount = userChats.reduce((total, chat) => total + chat.unread, 0);
 
+  // Initialize geolocation on component mount
+  useEffect(() => {
+    // Check if we already have location permission
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+        if (result.state === 'granted') {
+          handleLocationGranted();
+        }
+      });
+    }
+
+    // Set up geolocation service callbacks
+    geolocationService.onLocationUpdate((location) => {
+      console.log('Location updated:', location);
+      setUserLocation(location);
+      setLastLocationUpdate(Date.now());
+      filterJobsByLocation();
+      toast({
+        title: "Location Updated",
+        description: "Job listings refreshed based on your new location",
+      });
+    });
+
+    geolocationService.onLocationError((error) => {
+      console.error('Location error:', error);
+      setLocationError(error.message);
+    });
+
+    // Auto-refresh every 60 seconds
+    const refreshInterval = setInterval(() => {
+      if (locationPermissionGranted && userLocation) {
+        refreshLocation();
+      }
+    }, 60000);
+
+    return () => {
+      clearInterval(refreshInterval);
+      geolocationService.stopWatchingLocation();
+    };
+  }, []);
+
+  // Filter jobs when location or jobs change
+  useEffect(() => {
+    if (userLocation && allJobs.length > 0) {
+      filterJobsByLocation();
+    }
+  }, [userLocation, allJobs]);
+
+  const handleLocationGranted = async () => {
+    setIsLoadingLocation(true);
+    try {
+      const location = await geolocationService.getCurrentLocation();
+      setUserLocation(location);
+      setLocationPermissionGranted(true);
+      setLocationError(null);
+      
+      // Generate mock jobs based on user location
+      const mockJobs = geolocationService.generateMockJobs(location);
+      setAllJobs(mockJobs);
+      
+      // Start watching location for updates
+      geolocationService.startWatchingLocation();
+      
+      toast({
+        title: "Location Access Granted",
+        description: "Now showing jobs within 5km of your location",
+      });
+    } catch (error) {
+      console.error('Error getting location:', error);
+      setLocationError(error instanceof Error ? error.message : 'Failed to get location');
+    } finally {
+      setIsLoadingLocation(false);
+    }
+  };
+
+  const handleLocationDenied = (error: string) => {
+    setLocationError(error);
+    setLocationPermissionGranted(false);
+    toast({
+      title: "Location Access Denied",
+      description: "You can manually search for jobs in your area",
+      variant: "destructive"
+    });
+  };
+
+  const refreshLocation = async () => {
+    if (!locationPermissionGranted) return;
+    
+    setIsLoadingLocation(true);
+    try {
+      const location = await geolocationService.getCurrentLocation();
+      setUserLocation(location);
+      setLastLocationUpdate(Date.now());
+      filterJobsByLocation();
+    } catch (error) {
+      console.error('Error refreshing location:', error);
+    } finally {
+      setIsLoadingLocation(false);
+    }
+  };
+
+  const filterJobsByLocation = () => {
+    if (!userLocation || allJobs.length === 0) return;
+
+    const { withinRange, outOfRange } = geolocationService.filterJobsByGeofence(allJobs);
+    setFilteredJobs(withinRange);
+    setOutOfRangeJobs(outOfRange);
+    
+    console.log(`Filtered ${withinRange.length} jobs within 5km range`);
+  };
+
   // Search and filter logic
   const handleSearch = (query: string) => {
     setSearchQuery(query);
-    filterServices(query, {});
+    applyFilters(query, {});
   };
 
   const handleFiltersChange = (filters: any) => {
-    filterServices(searchQuery, filters);
+    applyFilters(searchQuery, filters);
   };
 
-  const filterServices = (query: string, filters: any) => {
-    let filtered = nearbyServices;
+  const applyFilters = (query: string, filters: any) => {
+    let jobsToFilter = locationPermissionGranted ? filteredJobs : allJobs;
 
     // Search by title, provider, description, or tags
     if (query.trim()) {
-      filtered = filtered.filter(service =>
-        service.title.toLowerCase().includes(query.toLowerCase()) ||
-        service.provider.toLowerCase().includes(query.toLowerCase()) ||
-        service.description.toLowerCase().includes(query.toLowerCase()) ||
-        service.tags.some(tag => tag.toLowerCase().includes(query.toLowerCase()))
+      jobsToFilter = jobsToFilter.filter(job =>
+        job.title.toLowerCase().includes(query.toLowerCase()) ||
+        job.provider.toLowerCase().includes(query.toLowerCase()) ||
+        job.description.toLowerCase().includes(query.toLowerCase()) ||
+        job.tags.some((tag: string) => tag.toLowerCase().includes(query.toLowerCase()))
       );
     }
 
     // Apply category filter
     if (filters.category && filters.category !== 'all') {
-      filtered = filtered.filter(service => service.category === filters.category);
+      jobsToFilter = jobsToFilter.filter(job => job.category === filters.category);
     }
 
     // Apply rating filter
     if (filters.rating && filters.rating > 0) {
-      filtered = filtered.filter(service => service.rating >= filters.rating);
+      jobsToFilter = jobsToFilter.filter(job => parseFloat(job.rating) >= filters.rating);
     }
 
     // Apply tag filters
     if (filters.tags && filters.tags.length > 0) {
-      filtered = filtered.filter(service =>
+      jobsToFilter = jobsToFilter.filter(job =>
         filters.tags.some((tag: string) =>
-          service.tags.some(serviceTag => 
-            serviceTag.toLowerCase().includes(tag.toLowerCase())
+          job.tags.some((jobTag: string) => 
+            jobTag.toLowerCase().includes(tag.toLowerCase())
           )
         )
       );
     }
 
-    setFilteredServices(filtered);
-    console.log('Filtered services:', filtered);
+    setFilteredJobs(jobsToFilter);
   };
 
   const handleChatClick = (service: any) => {
@@ -113,10 +237,29 @@ const Index = () => {
   const handleDeleteChat = (chatId: string) => {
     console.log('Deleting chat:', chatId);
     setUserChats(prevChats => prevChats.filter(chat => chat.id !== chatId));
-    // TODO: Implement actual chat deletion in database
   };
 
-  const servicesToShow = searchQuery || showFilters ? filteredServices : nearbyServices;
+  // Determine which jobs to show
+  const getJobsToDisplay = () => {
+    if (searchQuery || showFilters) {
+      return filteredJobs; // Searched/filtered results
+    }
+    return locationPermissionGranted ? filteredJobs : allJobs;
+  };
+
+  const jobsToShow = getJobsToDisplay();
+
+  // Show location permission screen if not granted
+  if (!locationPermissionGranted && !locationError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4">
+        <LocationPermission
+          onLocationGranted={handleLocationGranted}
+          onLocationDenied={handleLocationDenied}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -133,6 +276,31 @@ const Index = () => {
               </h1>
             </div>
             <div className="flex items-center space-x-4">
+              {locationPermissionGranted && (
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant="ghost"
+                    onClick={refreshLocation}
+                    disabled={isLoadingLocation}
+                    className="p-2"
+                    title="Refresh location"
+                  >
+                    {isLoadingLocation ? (
+                      <RefreshCw className="w-4 h-4 animate-spin text-gray-600" />
+                    ) : (
+                      <Navigation className="w-4 h-4 text-gray-600" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setShowMap(!showMap)}
+                    className="p-2"
+                    title="Toggle map view"
+                  >
+                    <MapPin className="w-4 h-4 text-gray-600" />
+                  </Button>
+                </div>
+              )}
               <Button
                 variant="ghost"
                 onClick={handleHeaderChatClick}
@@ -159,6 +327,46 @@ const Index = () => {
           </div>
         </div>
       </header>
+
+      {/* Location Status Banner */}
+      {locationPermissionGranted && userLocation && (
+        <div className="bg-green-50 border-b border-green-200 py-2">
+          <div className="container mx-auto px-4">
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center space-x-2 text-green-700">
+                <MapPin className="w-4 h-4" />
+                <span>
+                  Showing {filteredJobs.length} jobs within 5km • 
+                  {outOfRangeJobs.length} jobs out of range
+                </span>
+              </div>
+              <div className="text-green-600 text-xs">
+                Last updated: {new Date(lastLocationUpdate).toLocaleTimeString()}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Banner */}
+      {locationError && (
+        <div className="bg-yellow-50 border-b border-yellow-200 py-2">
+          <div className="container mx-auto px-4">
+            <div className="flex items-center space-x-2 text-yellow-700">
+              <AlertCircle className="w-4 h-4" />
+              <span className="text-sm">{locationError}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleLocationGranted}
+                className="ml-auto text-yellow-700 hover:text-yellow-800"
+              >
+                Retry
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Hero Section */}
       <section className="py-12 px-4">
@@ -205,7 +413,7 @@ const Index = () => {
               <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <Users className="w-8 h-8 text-neighborlly-blue" />
               </div>
-              <h3 className="text-2xl font-bold mb-2">500+</h3>
+              <h3 className="text-2xl font-bold mb-2">{allJobs.length}+</h3>
               <p className="text-gray-600">Active freelancers</p>
             </div>
             <div className="text-center animate-fade-in" style={{ animationDelay: '0.4s' }}>
@@ -288,17 +496,37 @@ const Index = () => {
       <div className="container mx-auto px-4 pb-16">
         {activeTab === 'discover' && (
           <div className="space-y-6">
+            {/* Map Component */}
+            {showMap && locationPermissionGranted && userLocation && (
+              <GeofenceMap
+                userLocation={userLocation}
+                jobs={allJobs}
+                filteredJobs={filteredJobs}
+                className="mb-6"
+              />
+            )}
+
             {searchQuery && (
               <div className="mb-4">
                 <p className="text-gray-600">
-                  {servicesToShow.length} results for "{searchQuery}"
+                  {jobsToShow.length} results for "{searchQuery}"
+                  {locationPermissionGranted && (
+                    <span className="text-sm text-gray-500 ml-2">
+                      (within 5km radius)
+                    </span>
+                  )}
                 </p>
               </div>
             )}
 
-            {servicesToShow.length === 0 && !searchQuery && (
+            {jobsToShow.length === 0 && !searchQuery && (
               <div className="text-center py-12">
-                <p className="text-gray-500 text-lg mb-4">No services available yet.</p>
+                <p className="text-gray-500 text-lg mb-4">
+                  {locationPermissionGranted 
+                    ? "No services available within 5km of your location."
+                    : "No services available yet."
+                  }
+                </p>
                 <p className="text-gray-400">Be the first to post a service in your area!</p>
                 <Button
                   onClick={() => setActiveTab('post')}
@@ -311,78 +539,133 @@ const Index = () => {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {servicesToShow.map((service) => {
-                const IconComponent = service.icon;
-                return (
-                  <Card key={service.id} className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2 bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                    <CardHeader className="pb-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center space-x-3">
-                          <div className={`w-12 h-12 ${service.color} rounded-xl flex items-center justify-center`}>
-                            <IconComponent className="w-6 h-6 text-white" />
-                          </div>
-                          <div>
-                            <CardTitle className="text-lg group-hover:text-neighborlly-purple transition-colors">
-                              {service.title}
-                            </CardTitle>
-                            <p className="text-sm text-gray-600">{service.provider}</p>
-                          </div>
+              {jobsToShow.map((job) => (
+                <Card key={job.id} className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2 bg-white/80 backdrop-blur-sm border-0 shadow-lg">
+                  <CardHeader className="pb-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className={`w-12 h-12 ${job.color} rounded-xl flex items-center justify-center`}>
+                          <Code className="w-6 h-6 text-white" />
                         </div>
-                        <div className="flex items-center space-x-1">
-                          <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                          <span className="text-sm font-medium">{service.rating}</span>
-                          <span className="text-xs text-gray-500">({service.reviews})</span>
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <CardDescription className="mb-4 text-gray-600">
-                        {service.description}
-                      </CardDescription>
-                      <div className="flex flex-wrap gap-2 mb-4">
-                        {service.tags.map((tag) => (
-                          <Badge key={tag} variant="secondary" className="bg-gray-100 text-gray-700 hover:bg-gray-200">
-                            {tag}
-                          </Badge>
-                        ))}
-                      </div>
-                      <div className="flex items-center justify-between">
                         <div>
-                          <div className="flex items-center text-sm text-gray-500 mb-1">
-                            <MapPin className="w-3 h-3 mr-1" />
-                            {service.distance}
-                          </div>
-                          <div className="flex items-center text-lg font-bold text-neighborlly-purple">
-                            ₹{service.price?.replace('$', '').replace('/hour', '')}/hour
-                          </div>
+                          <CardTitle className="text-lg group-hover:text-neighborlly-purple transition-colors">
+                            {job.title}
+                          </CardTitle>
+                          <p className="text-sm text-gray-600">{job.provider}</p>
                         </div>
-                        <Button 
-                          className="bg-gradient-neighborlly hover:opacity-90 rounded-xl"
-                          onClick={() => handleChatClick(service)}
-                        >
-                          <MessageCircle className="w-4 h-4 mr-2" />
-                          Chat
-                        </Button>
                       </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
+                      <div className="flex items-center space-x-1">
+                        <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                        <span className="text-sm font-medium">{job.rating}</span>
+                        <span className="text-xs text-gray-500">({job.reviews})</span>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <CardDescription className="mb-4 text-gray-600">
+                      {job.description}
+                    </CardDescription>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {job.tags.map((tag: string) => (
+                        <Badge key={tag} variant="secondary" className="bg-gray-100 text-gray-700 hover:bg-gray-200">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center text-sm text-gray-500 mb-1">
+                          <MapPin className="w-3 h-3 mr-1" />
+                          {job.distance || 'Distance unknown'}
+                        </div>
+                        <div className="flex items-center text-lg font-bold text-neighborlly-purple">
+                          {job.price}/hour
+                        </div>
+                      </div>
+                      <Button 
+                        className="bg-gradient-neighborlly hover:opacity-90 rounded-xl"
+                        onClick={() => handleChatClick(job)}
+                      >
+                        <MessageCircle className="w-4 h-4 mr-2" />
+                        Chat
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
 
-            {servicesToShow.length === 0 && searchQuery && (
+            {jobsToShow.length === 0 && searchQuery && (
               <div className="text-center py-12">
                 <p className="text-gray-500 text-lg">No services found matching your search.</p>
                 <Button
                   variant="outline"
                   onClick={() => {
                     setSearchQuery('');
-                    setFilteredServices([]);
+                    setFilteredJobs(locationPermissionGranted ? filteredJobs : allJobs);
                   }}
                   className="mt-4"
                 >
                   Clear Search
                 </Button>
+              </div>
+            )}
+
+            {/* Out of Range Jobs */}
+            {locationPermissionGranted && outOfRangeJobs.length > 0 && !searchQuery && (
+              <div className="mt-12">
+                <div className="border-t pt-8">
+                  <h3 className="text-xl font-semibold text-gray-600 mb-4">
+                    Jobs Outside Your Area ({outOfRangeJobs.length})
+                  </h3>
+                  <p className="text-gray-500 text-sm mb-6">
+                    These jobs are more than 5km away from your current location
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {outOfRangeJobs.slice(0, 6).map((job) => (
+                      <Card key={job.id} className="opacity-60 bg-gray-50 border border-gray-200">
+                        <CardHeader className="pb-4">
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-12 h-12 bg-gray-400 rounded-xl flex items-center justify-center">
+                                <Code className="w-6 h-6 text-white" />
+                              </div>
+                              <div>
+                                <CardTitle className="text-lg text-gray-600">
+                                  {job.title}
+                                </CardTitle>
+                                <p className="text-sm text-gray-500">{job.provider}</p>
+                              </div>
+                            </div>
+                            <Badge variant="secondary" className="bg-red-100 text-red-700">
+                              Out of range
+                            </Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <CardDescription className="mb-4 text-gray-500">
+                            {job.description}
+                          </CardDescription>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="flex items-center text-sm text-gray-400 mb-1">
+                                <MapPin className="w-3 h-3 mr-1" />
+                                Too far away
+                              </div>
+                              <div className="flex items-center text-lg font-bold text-gray-500">
+                                {job.price}/hour
+                              </div>
+                            </div>
+                            <Button disabled className="bg-gray-300 text-gray-500 rounded-xl">
+                              <MessageCircle className="w-4 h-4 mr-2" />
+                              Out of Range
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -422,45 +705,11 @@ const Index = () => {
                   </div>
                 </CardHeader>
                 <CardContent className="p-6">
-                  {userChats.length === 0 ? (
-                    <div className="text-center py-8">
-                      <MessageCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                      <p className="text-gray-500 text-lg mb-2">No conversations yet</p>
-                      <p className="text-gray-400 text-sm">Start chatting with service providers to see your conversations here.</p>
-                    </div>
-                  ) : (
-                    userChats.map((chat) => (
-                      <div 
-                        key={chat.id} 
-                        className="flex items-center p-4 hover:bg-gray-50 transition-colors cursor-pointer border-b last:border-b-0"
-                        onClick={() => setSelectedChat(chat.name)}
-                      >
-                        <div className="relative">
-                          <Avatar className="w-12 h-12">
-                            <AvatarImage src={chat.avatar} />
-                            <AvatarFallback>{chat.name.charAt(0)}</AvatarFallback>
-                          </Avatar>
-                          {chat.online && (
-                            <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white"></div>
-                          )}
-                        </div>
-                        <div className="ml-4 flex-1">
-                          <div className="flex items-center justify-between">
-                            <h4 className="font-medium">{chat.name}</h4>
-                            <div className="flex items-center space-x-2">
-                              <span className="text-xs text-gray-500">{chat.time}</span>
-                              {chat.unread > 0 && (
-                                <Badge className="bg-neighborlly-purple text-white px-2 py-1 text-xs">
-                                  {chat.unread}
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                          <p className="text-sm text-gray-600 truncate">{chat.lastMessage}</p>
-                        </div>
-                      </div>
-                    ))
-                  )}
+                  <div className="text-center py-8">
+                    <MessageCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500 text-lg mb-2">No conversations yet</p>
+                    <p className="text-gray-400 text-sm">Start chatting with service providers to see your conversations here.</p>
+                  </div>
                 </CardContent>
               </Card>
             )}
