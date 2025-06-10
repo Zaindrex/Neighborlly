@@ -13,7 +13,6 @@ import {
   Plus,
   Briefcase,
   Code,
-  Filter,
   User,
   Navigation,
   AlertCircle,
@@ -24,17 +23,16 @@ import { useToast } from '@/hooks/use-toast';
 import UserProfile from '@/components/UserProfile';
 import ChatWindow from '@/components/ChatWindow';
 import PostServiceForm from '@/components/PostServiceForm';
-import ServiceFilters from '@/components/ServiceFilters';
 import ContactsList from '@/components/ContactsList';
 import LocationPermission from '@/components/LocationPermission';
 import GeofenceMap from '@/components/GeofenceMap';
 import { geolocationService, Location, Job } from '@/services/geolocationService';
+import { useServices } from '@/hooks/useServices';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState('discover');
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
   const [showContactsList, setShowContactsList] = useState(false);
   const [showMap, setShowMap] = useState(false);
   
@@ -51,12 +49,34 @@ const Index = () => {
   const [lastLocationUpdate, setLastLocationUpdate] = useState<number>(0);
 
   const { toast } = useToast();
+  const { services, loading: servicesLoading, refreshServices } = useServices();
 
   // Empty chats array - real data would come from database/API
   const [userChats, setUserChats] = useState<any[]>([]);
 
   // Calculate unread message count from real chats
   const unreadCount = userChats.reduce((total, chat) => total + chat.unread, 0);
+
+  // Convert services to jobs format
+  useEffect(() => {
+    const convertedJobs: Job[] = services.map(service => ({
+      id: service.id,
+      title: service.title,
+      provider: service.profiles?.name || 'Unknown Provider',
+      description: service.description,
+      price: `₹${service.price}`,
+      rating: service.profiles?.rating?.toString() || '4.5',
+      reviews: Math.floor(Math.random() * 100) + 1,
+      latitude: service.latitude || 0,
+      longitude: service.longitude || 0,
+      category: service.category,
+      tags: service.tags || [],
+      icon: 'Code',
+      color: 'bg-blue-500'
+    }));
+
+    setAllJobs(convertedJobs);
+  }, [services]);
 
   // Initialize geolocation on component mount
   useEffect(() => {
@@ -90,6 +110,7 @@ const Index = () => {
     const refreshInterval = setInterval(() => {
       if (locationPermissionGranted && userLocation) {
         refreshLocation();
+        refreshServices(); // Also refresh services data
       }
     }, 60000);
 
@@ -113,10 +134,6 @@ const Index = () => {
       setUserLocation(location);
       setLocationPermissionGranted(true);
       setLocationError(null);
-      
-      // Generate mock jobs based on user location
-      const mockJobs = geolocationService.generateMockJobs(location);
-      setAllJobs(mockJobs);
       
       // Start watching location for updates
       geolocationService.startWatchingLocation();
@@ -169,17 +186,13 @@ const Index = () => {
     console.log(`Filtered ${withinRange.length} jobs within 5km range`);
   };
 
-  // Search and filter logic
+  // Search logic
   const handleSearch = (query: string) => {
     setSearchQuery(query);
-    applyFilters(query, {});
+    applySearch(query);
   };
 
-  const handleFiltersChange = (filters: any) => {
-    applyFilters(searchQuery, filters);
-  };
-
-  const applyFilters = (query: string, filters: any) => {
+  const applySearch = (query: string) => {
     let jobsToFilter = locationPermissionGranted ? filteredJobs : allJobs;
 
     // Search by title, provider, description, or tags
@@ -187,33 +200,14 @@ const Index = () => {
       jobsToFilter = jobsToFilter.filter(job =>
         job.title.toLowerCase().includes(query.toLowerCase()) ||
         job.provider.toLowerCase().includes(query.toLowerCase()) ||
-        job.description.toLowerCase().includes(query.toLowerCase()) ||
-        job.tags.some((tag: string) => tag.toLowerCase().includes(query.toLowerCase()))
+        job.description?.toLowerCase().includes(query.toLowerCase()) ||
+        job.tags?.some((tag: string) => tag.toLowerCase().includes(query.toLowerCase()))
       );
     }
 
-    // Apply category filter
-    if (filters.category && filters.category !== 'all') {
-      jobsToFilter = jobsToFilter.filter(job => job.category === filters.category);
+    if (searchQuery) {
+      setFilteredJobs(jobsToFilter);
     }
-
-    // Apply rating filter
-    if (filters.rating && filters.rating > 0) {
-      jobsToFilter = jobsToFilter.filter(job => parseFloat(job.rating) >= filters.rating);
-    }
-
-    // Apply tag filters
-    if (filters.tags && filters.tags.length > 0) {
-      jobsToFilter = jobsToFilter.filter(job =>
-        filters.tags.some((tag: string) =>
-          job.tags.some((jobTag: string) => 
-            jobTag.toLowerCase().includes(tag.toLowerCase())
-          )
-        )
-      );
-    }
-
-    setFilteredJobs(jobsToFilter);
   };
 
   const handleChatClick = (service: any) => {
@@ -241,8 +235,8 @@ const Index = () => {
 
   // Determine which jobs to show
   const getJobsToDisplay = () => {
-    if (searchQuery || showFilters) {
-      return filteredJobs; // Searched/filtered results
+    if (searchQuery) {
+      return filteredJobs; // Searched results
     }
     return locationPermissionGranted ? filteredJobs : allJobs;
   };
@@ -394,12 +388,7 @@ const Index = () => {
                 onChange={(e) => handleSearch(e.target.value)}
                 className="pl-12 pr-4 py-4 text-lg rounded-2xl border-2 border-gray-200 focus:border-neighborlly-purple transition-colors"
               />
-              <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex space-x-2">
-                <ServiceFilters
-                  onFiltersChange={handleFiltersChange}
-                  isVisible={showFilters}
-                  onToggle={() => setShowFilters(!showFilters)}
-                />
+              <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
                 <Button className="bg-gradient-neighborlly hover:opacity-90 rounded-xl">
                   Search
                 </Button>
@@ -519,7 +508,14 @@ const Index = () => {
               </div>
             )}
 
-            {jobsToShow.length === 0 && !searchQuery && (
+            {servicesLoading && (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-neighborlly-purple mx-auto mb-4"></div>
+                <p className="text-gray-500">Loading services...</p>
+              </div>
+            )}
+
+            {!servicesLoading && jobsToShow.length === 0 && !searchQuery && (
               <div className="text-center py-12">
                 <p className="text-gray-500 text-lg mb-4">
                   {locationPermissionGranted 
@@ -566,7 +562,7 @@ const Index = () => {
                       {job.description}
                     </CardDescription>
                     <div className="flex flex-wrap gap-2 mb-4">
-                      {job.tags.map((tag: string) => (
+                      {job.tags?.map((tag: string) => (
                         <Badge key={tag} variant="secondary" className="bg-gray-100 text-gray-700 hover:bg-gray-200">
                           {tag}
                         </Badge>
@@ -595,7 +591,7 @@ const Index = () => {
               ))}
             </div>
 
-            {jobsToShow.length === 0 && searchQuery && (
+            {!servicesLoading && jobsToShow.length === 0 && searchQuery && (
               <div className="text-center py-12">
                 <p className="text-gray-500 text-lg">No services found matching your search.</p>
                 <Button

@@ -16,6 +16,13 @@ export interface Job {
   provider: string;
   latitude: number;
   longitude: number;
+  description?: string;
+  price?: string;
+  rating?: string;
+  reviews?: number;
+  category?: string;
+  tags?: string[];
+  distance?: string;
   [key: string]: any;
 }
 
@@ -163,8 +170,8 @@ export class GeolocationService {
 
     // Sort by distance
     withinRange.sort((a, b) => {
-      const distanceA = parseFloat(a.distance.replace('km', ''));
-      const distanceB = parseFloat(b.distance.replace('km', ''));
+      const distanceA = parseFloat(a.distance?.replace('km', '') || '0');
+      const distanceB = parseFloat(b.distance?.replace('km', '') || '0');
       return distanceA - distanceB;
     });
 
@@ -235,43 +242,6 @@ export class GeolocationService {
 
   getGeofence(): GeofenceOptions | null {
     return this.geofence;
-  }
-
-  // Generate mock jobs for demonstration
-  generateMockJobs(userLocation: Location): Job[] {
-    const mockJobs: Job[] = [];
-    const categories = ['Programming', 'Design', 'Writing', 'Photography', 'Marketing'];
-    const providers = ['John Doe', 'Jane Smith', 'Mike Johnson', 'Sarah Wilson', 'David Brown'];
-
-    // Generate jobs within and outside the 5km radius
-    for (let i = 0; i < 20; i++) {
-      const isWithinRange = i < 12; // 12 jobs within range, 8 outside
-      const radiusKm = isWithinRange ? Math.random() * 5 : 5 + Math.random() * 10;
-      const angle = Math.random() * 2 * Math.PI;
-      
-      // Convert km to approximate degrees (rough approximation for demo)
-      const kmToDegrees = radiusKm / 111.32;
-      const lat = userLocation.latitude + kmToDegrees * Math.cos(angle);
-      const lng = userLocation.longitude + kmToDegrees * Math.sin(angle);
-
-      mockJobs.push({
-        id: `job-${i + 1}`,
-        title: `${categories[i % categories.length]} Expert`,
-        provider: providers[i % providers.length],
-        description: `Professional ${categories[i % categories.length].toLowerCase()} services`,
-        price: `₹${(500 + Math.random() * 2000).toFixed(0)}`,
-        rating: (4 + Math.random()).toFixed(1),
-        reviews: Math.floor(Math.random() * 100) + 1,
-        latitude: lat,
-        longitude: lng,
-        category: categories[i % categories.length],
-        tags: [`${categories[i % categories.length]}`, 'Professional', 'Experienced'],
-        icon: 'Code', // This would be mapped to actual icons
-        color: 'bg-blue-500'
-      });
-    }
-
-    return mockJobs;
   }
 }
 
