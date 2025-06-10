@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,17 +22,16 @@ import { useToast } from '@/hooks/use-toast';
 import UserProfile from '@/components/UserProfile';
 import ChatWindow from '@/components/ChatWindow';
 import PostServiceForm from '@/components/PostServiceForm';
-import ContactsList from '@/components/ContactsList';
 import LocationPermission from '@/components/LocationPermission';
 import GeofenceMap from '@/components/GeofenceMap';
 import { geolocationService, Location, Job } from '@/services/geolocationService';
 import { useServices } from '@/hooks/useServices';
+import { useActiveUsers } from '@/hooks/useActiveUsers';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState('discover');
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showContactsList, setShowContactsList] = useState(false);
   const [showMap, setShowMap] = useState(false);
   
   // Geolocation states
@@ -50,6 +48,7 @@ const Index = () => {
 
   const { toast } = useToast();
   const { services, loading: servicesLoading, refreshServices } = useServices();
+  const activeUsersCount = useActiveUsers();
 
   // Empty chats array - real data would come from database/API
   const [userChats, setUserChats] = useState<any[]>([]);
@@ -59,11 +58,12 @@ const Index = () => {
 
   // Convert services to jobs format
   useEffect(() => {
+    console.log('Converting services to jobs:', services);
     const convertedJobs: Job[] = services.map(service => ({
       id: service.id,
       title: service.title,
       provider: service.profiles?.name || 'Unknown Provider',
-      description: service.description,
+      description: service.description || '',
       price: `₹${service.price}`,
       rating: service.profiles?.rating?.toString() || '4.5',
       reviews: Math.floor(Math.random() * 100) + 1,
@@ -75,6 +75,7 @@ const Index = () => {
       color: 'bg-blue-500'
     }));
 
+    console.log('Converted jobs:', convertedJobs);
     setAllJobs(convertedJobs);
   }, [services]);
 
@@ -216,18 +217,6 @@ const Index = () => {
     setActiveTab('chats');
   };
 
-  const handleHeaderChatClick = () => {
-    console.log('Header chat button clicked');
-    setShowContactsList(true);
-    setActiveTab('chats');
-  };
-
-  const handleContactSelect = (contact: any) => {
-    console.log('Selected contact:', contact.name);
-    setSelectedChat(contact.name);
-    setShowContactsList(false);
-  };
-
   const handleDeleteChat = (chatId: string) => {
     console.log('Deleting chat:', chatId);
     setUserChats(prevChats => prevChats.filter(chat => chat.id !== chatId));
@@ -297,7 +286,7 @@ const Index = () => {
               )}
               <Button
                 variant="ghost"
-                onClick={handleHeaderChatClick}
+                onClick={() => setActiveTab('chats')}
                 className="relative p-2"
               >
                 <MessageCircle className="w-6 h-6 text-gray-600" />
@@ -397,20 +386,13 @@ const Index = () => {
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto mb-16">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto mb-16">
             <div className="text-center animate-fade-in" style={{ animationDelay: '0.2s' }}>
               <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <Users className="w-8 h-8 text-neighborlly-blue" />
               </div>
-              <h3 className="text-2xl font-bold mb-2">{allJobs.length}+</h3>
+              <h3 className="text-2xl font-bold mb-2">{activeUsersCount}+</h3>
               <p className="text-gray-600">Active freelancers</p>
-            </div>
-            <div className="text-center animate-fade-in" style={{ animationDelay: '0.4s' }}>
-              <div className="w-16 h-16 bg-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Briefcase className="w-8 h-8 text-neighborlly-purple" />
-              </div>
-              <h3 className="text-2xl font-bold mb-2">1,200+</h3>
-              <p className="text-gray-600">Jobs completed</p>
             </div>
             <div className="text-center animate-fade-in" style={{ animationDelay: '0.6s' }}>
               <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -677,28 +659,13 @@ const Index = () => {
                 onBack={() => setSelectedChat(null)}
                 onDeleteChat={handleDeleteChat}
               />
-            ) : showContactsList ? (
-              <ContactsList
-                onContactSelect={handleContactSelect}
-                onBack={() => setShowContactsList(false)}
-              />
             ) : (
               <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
                 <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="flex items-center">
-                      <MessageCircle className="w-5 h-5 mr-2 text-neighborlly-purple" />
-                      Recent Conversations
-                    </CardTitle>
-                    <Button
-                      variant="outline"
-                      onClick={() => setShowContactsList(true)}
-                      className="rounded-xl"
-                    >
-                      <Users className="w-4 h-4 mr-2" />
-                      Contacts
-                    </Button>
-                  </div>
+                  <CardTitle className="flex items-center">
+                    <MessageCircle className="w-5 h-5 mr-2 text-neighborlly-purple" />
+                    Recent Conversations
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="p-6">
                   <div className="text-center py-8">

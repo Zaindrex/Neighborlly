@@ -34,36 +34,60 @@ export const useServices = () => {
       setLoading(true);
       setError(null);
 
+      console.log('Fetching services...');
+
       // First fetch services
       const { data: servicesData, error: servicesError } = await supabase
         .from('services')
         .select('*')
         .order('created_at', { ascending: false });
 
+      console.log('Services data:', servicesData);
+
       if (servicesError) {
+        console.error('Services error:', servicesError);
         throw servicesError;
+      }
+
+      if (!servicesData || servicesData.length === 0) {
+        console.log('No services found in database');
+        setServices([]);
+        return;
       }
 
       // Then fetch profiles for each service
       const servicesWithProfiles = await Promise.all(
-        (servicesData || []).map(async (service) => {
-          const { data: profileData } = await supabase
+        servicesData.map(async (service) => {
+          console.log('Fetching profile for user_id:', service.user_id);
+          
+          const { data: profileData, error: profileError } = await supabase
             .from('profiles')
             .select('name, rating, avatar_url')
             .eq('user_id', service.user_id)
-            .single();
+            .maybeSingle();
+
+          if (profileError) {
+            console.error('Profile error for user', service.user_id, ':', profileError);
+          }
+
+          console.log('Profile data for user', service.user_id, ':', profileData);
 
           return {
             ...service,
             profiles: profileData ? {
-              name: profileData.name,
+              name: profileData.name || 'Unknown User',
               rating: profileData.rating || 0,
               avatar_url: profileData.avatar_url
-            } : undefined
+            } : {
+              name: 'Unknown User',
+              rating: 0,
+              avatar_url: undefined
+            }
           };
         })
       );
 
+      console.log('Final services with profiles:', servicesWithProfiles);
       setServices(servicesWithProfiles);
     } catch (err) {
       console.error('Error fetching services:', err);
