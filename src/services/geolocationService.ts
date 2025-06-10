@@ -19,6 +19,16 @@ export interface Job {
   [key: string]: any;
 }
 
+// Declare global turf types
+declare global {
+  interface Window {
+    turf: {
+      point: (coordinates: [number, number]) => any;
+      distance: (from: any, to: any, options: { units: string }) => number;
+    };
+  }
+}
+
 export class GeolocationService {
   private watchId: number | null = null;
   private currentLocation: Location | null = null;
@@ -164,12 +174,16 @@ export class GeolocationService {
   private isJobWithinGeofence(job: Job): boolean {
     if (!this.geofence || !this.currentLocation) return false;
 
-    // Use Turf.js for accurate geospatial calculations
-    if (typeof turf !== 'undefined') {
-      const center = turf.point([this.currentLocation.longitude, this.currentLocation.latitude]);
-      const jobPoint = turf.point([job.longitude, job.latitude]);
-      const distance = turf.distance(center, jobPoint, { units: 'kilometers' });
-      return distance <= this.geofence.radius;
+    // Use Turf.js for accurate geospatial calculations if available
+    if (typeof window !== 'undefined' && window.turf) {
+      try {
+        const center = window.turf.point([this.currentLocation.longitude, this.currentLocation.latitude]);
+        const jobPoint = window.turf.point([job.longitude, job.latitude]);
+        const distance = window.turf.distance(center, jobPoint, { units: 'kilometers' });
+        return distance <= this.geofence.radius;
+      } catch (error) {
+        console.warn('Turf.js calculation failed, falling back to haversine formula:', error);
+      }
     }
 
     // Fallback to haversine formula if Turf.js is not available
