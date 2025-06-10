@@ -34,23 +34,37 @@ export const useServices = () => {
       setLoading(true);
       setError(null);
 
-      const { data, error: fetchError } = await supabase
+      // First fetch services
+      const { data: servicesData, error: servicesError } = await supabase
         .from('services')
-        .select(`
-          *,
-          profiles:user_id (
-            name,
-            rating,
-            avatar_url
-          )
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
 
-      if (fetchError) {
-        throw fetchError;
+      if (servicesError) {
+        throw servicesError;
       }
 
-      setServices(data || []);
+      // Then fetch profiles for each service
+      const servicesWithProfiles = await Promise.all(
+        (servicesData || []).map(async (service) => {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('name, rating, avatar_url')
+            .eq('user_id', service.user_id)
+            .single();
+
+          return {
+            ...service,
+            profiles: profileData ? {
+              name: profileData.name,
+              rating: profileData.rating || 0,
+              avatar_url: profileData.avatar_url
+            } : undefined
+          };
+        })
+      );
+
+      setServices(servicesWithProfiles);
     } catch (err) {
       console.error('Error fetching services:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch services');
