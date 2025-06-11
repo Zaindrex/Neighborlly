@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -61,6 +60,7 @@ const Index = () => {
   const { toast } = useToast();
   const { services, loading: servicesLoading, refreshServices } = useServices();
   const activeUsersCount = useActiveUsers();
+  const { chats, refreshChats, startChat } = useChats();
 
   // Empty chats array - real data would come from database/API
   const [userChats, setUserChats] = useState<any[]>([]);
@@ -223,10 +223,64 @@ const Index = () => {
     }
   };
 
-  const handleChatClick = (service: any) => {
-    console.log('Starting chat with:', service.provider);
-    setSelectedChat(service.provider);
-    setActiveTab('chats');
+  const handleChatClick = async (service: any) => {
+    console.log('Starting chat with service provider:', service);
+    
+    try {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        toast({
+          title: "Authentication Required",
+          description: "Please log in to start a chat",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Get the service provider's user_id
+      const { data: serviceData, error: serviceError } = await supabase
+        .from('services')
+        .select('user_id, profiles(name, avatar_url)')
+        .eq('id', service.id)
+        .single();
+
+      if (serviceError || !serviceData) {
+        console.error('Error fetching service data:', serviceError);
+        toast({
+          title: "Error",
+          description: "Could not start chat with this provider",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Start or get existing chat
+      const chatId = await startChat(serviceData.user_id);
+      if (!chatId) {
+        toast({
+          title: "Error",
+          description: "Failed to start chat",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Set up the selected chat properly
+      setSelectedChat({
+        chatId: chatId,
+        recipientId: serviceData.user_id,
+        recipientName: serviceData.profiles?.name || 'Service Provider',
+        recipientAvatar: serviceData.profiles?.avatar_url
+      });
+      setActiveTab('chats');
+    } catch (error) {
+      console.error('Error in handleChatClick:', error);
+      toast({
+        title: "Error",
+        description: "Failed to start chat",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleDeleteChat = (chatId: string) => {
@@ -675,9 +729,10 @@ const Index = () => {
           <div className="max-w-4xl mx-auto">
             {selectedChat ? (
               <ChatWindow
-                chatId={selectedChat}
-                recipientName={selectedChat}
-                recipientAvatar="/api/placeholder/40/40"
+                chatId={selectedChat.chatId}
+                recipientId={selectedChat.recipientId}
+                recipientName={selectedChat.recipientName}
+                recipientAvatar={selectedChat.recipientAvatar}
                 onBack={() => setSelectedChat(null)}
                 onDeleteChat={handleDeleteChat}
               />
@@ -690,11 +745,51 @@ const Index = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-6">
-                  <div className="text-center py-8">
-                    <MessageCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                    <p className="text-gray-500 text-lg mb-2">No conversations yet</p>
-                    <p className="text-gray-400 text-sm">Start chatting with service providers to see your conversations here.</p>
-                  </div>
+                  {chats.length === 0 ? (
+                    <div className="text-center py-8">
+                      <MessageCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                      <p className="text-gray-500 text-lg mb-2">No conversations yet</p>
+                      <p className="text-gray-400 text-sm">Start chatting with service providers to see your conversations here.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {chats.map((chat) => (
+                        <div
+                          key={chat.id}
+                          className="flex items-center space-x-3 p-4 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                          onClick={() => setSelectedChat({
+                            chatId: chat.id,
+                            recipientId: chat.other_user?.id || '',
+                            recipientName: chat.other_user?.name || 'Unknown User',
+                            recipientAvatar: chat.other_user?.avatar_url
+                          })}
+                        >
+                          <Avatar className="w-12 h-12">
+                            <AvatarImage src={chat.other_user?.avatar_url} />
+                            <AvatarFallback>
+                              {chat.other_user?.name?.charAt(0) || 'U'}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <h3 className="font-medium">{chat.other_user?.name || 'Unknown User'}</h3>
+                              <span className="text-xs text-gray-500">
+                                {new Date(chat.last_message_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-600 truncate">
+                              {chat.last_message || 'No messages yet'}
+                            </p>
+                          </div>
+                          {chat.unread_count && chat.unread_count > 0 && (
+                            <Badge variant="destructive" className="min-w-[20px] h-5 text-xs">
+                              {chat.unread_count}
+                            </Badge>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}
