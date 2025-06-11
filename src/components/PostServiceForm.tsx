@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Plus, X, MapPin, DollarSign } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface ServiceData {
   title: string;
@@ -17,7 +18,11 @@ interface ServiceData {
   location: string;
 }
 
-const PostServiceForm = () => {
+interface PostServiceFormProps {
+  onServicePosted?: () => void;
+}
+
+const PostServiceForm = ({ onServicePosted }: PostServiceFormProps) => {
   const { toast } = useToast();
   const [serviceData, setServiceData] = useState<ServiceData>({
     title: '',
@@ -58,13 +63,63 @@ const PostServiceForm = () => {
     });
   };
 
+  const parseLocationCoordinates = (location: string) => {
+    // Try to parse coordinates from location string like "28.4836, 77.5439"
+    const coordPattern = /^(-?\d+\.?\d*),\s*(-?\d+\.?\d*)$/;
+    const match = location.match(coordPattern);
+    
+    if (match) {
+      return {
+        latitude: parseFloat(match[1]),
+        longitude: parseFloat(match[2])
+      };
+    }
+    
+    return { latitude: null, longitude: null };
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
-      console.log('Posting service:', serviceData);
-      // TODO: Implement actual service posting
+      console.log('Posting service to database:', serviceData);
+      
+      // Get current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Parse coordinates from location
+      const { latitude, longitude } = parseLocationCoordinates(serviceData.location);
+
+      // Insert service into database
+      const { data, error } = await supabase
+        .from('services')
+        .insert([
+          {
+            user_id: user.id,
+            title: serviceData.title,
+            description: serviceData.description,
+            category: serviceData.category,
+            tags: serviceData.tags,
+            price: serviceData.price,
+            price_type: serviceData.priceType,
+            location: serviceData.location,
+            latitude: latitude,
+            longitude: longitude
+          }
+        ])
+        .select();
+
+      if (error) {
+        console.error('Error inserting service:', error);
+        throw error;
+      }
+
+      console.log('Service inserted successfully:', data);
       
       toast({
         title: "Service Posted!",
@@ -81,10 +136,17 @@ const PostServiceForm = () => {
         priceType: 'hourly',
         location: ''
       });
+
+      // Notify parent component to refresh services
+      if (onServicePosted) {
+        onServicePosted();
+      }
+
     } catch (error) {
+      console.error('Error posting service:', error);
       toast({
         title: "Error",
-        description: "Failed to post service. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to post service. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -97,7 +159,6 @@ const PostServiceForm = () => {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
-          // TODO: Convert coordinates to address
           setServiceData({
             ...serviceData,
             location: `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
@@ -170,7 +231,7 @@ const PostServiceForm = () => {
                 <Input
                   value={serviceData.location}
                   onChange={(e) => setServiceData({ ...serviceData, location: e.target.value })}
-                  placeholder="Your service location"
+                  placeholder="Your service location or coordinates"
                   required
                 />
                 <Button

@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -692,7 +691,7 @@ const Index = () => {
           </div>
         )}
 
-        {activeTab === 'post' && <PostServiceForm />}
+        {activeTab === 'post' && <PostServiceForm onServicePosted={refreshServices} />}
 
         {activeTab === 'profile' && <UserProfile />}
       </div>
