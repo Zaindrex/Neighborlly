@@ -3,38 +3,34 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 export const useActiveUsers = () => {
-  const [activeUsersCount, setActiveUsersCount] = useState(0);
+  const [registeredUsersCount, setRegisteredUsersCount] = useState(0);
 
   useEffect(() => {
-    const fetchActiveUsers = async () => {
+    const fetchRegisteredUsers = async () => {
       try {
-        // Get users who have been active in the last 24 hours
-        const twentyFourHoursAgo = new Date();
-        twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
-
-        const { data: activeProfiles, error } = await supabase
+        // Get total count of registered users from profiles table
+        const { count, error } = await supabase
           .from('profiles')
-          .select('id')
-          .gte('updated_at', twentyFourHoursAgo.toISOString());
+          .select('*', { count: 'exact', head: true });
 
         if (error) {
-          console.error('Error fetching active users:', error);
+          console.error('Error fetching registered users:', error);
           return;
         }
 
-        setActiveUsersCount(activeProfiles?.length || 0);
+        setRegisteredUsersCount(count || 0);
       } catch (error) {
-        console.error('Error in fetchActiveUsers:', error);
+        console.error('Error in fetchRegisteredUsers:', error);
       }
     };
 
-    fetchActiveUsers();
+    fetchRegisteredUsers();
 
     // Update every 5 minutes
-    const interval = setInterval(fetchActiveUsers, 5 * 60 * 1000);
+    const interval = setInterval(fetchRegisteredUsers, 5 * 60 * 1000);
 
     return () => clearInterval(interval);
   }, []);
 
-  return activeUsersCount;
+  return registeredUsersCount;
 };

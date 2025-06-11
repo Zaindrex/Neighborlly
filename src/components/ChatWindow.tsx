@@ -11,29 +11,31 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-
-interface Message {
-  id: string;
-  senderId: string;
-  content: string;
-  timestamp: Date;
-  isRead: boolean;
-}
+import { useMessages } from '@/hooks/useMessages';
+import { supabase } from '@/integrations/supabase/client';
 
 interface ChatWindowProps {
-  chatId?: string;
+  chatId: string;
+  recipientId: string;
   recipientName: string;
-  recipientAvatar: string;
+  recipientAvatar?: string;
   onBack: () => void;
   onDeleteChat?: (chatId: string) => void;
 }
 
-const ChatWindow = ({ chatId, recipientName, recipientAvatar, onBack, onDeleteChat }: ChatWindowProps) => {
-  // Start with empty messages array - real messages would come from database
-  const [messages, setMessages] = useState<Message[]>([]);
+const ChatWindow = ({ 
+  chatId, 
+  recipientId, 
+  recipientName, 
+  recipientAvatar, 
+  onBack, 
+  onDeleteChat 
+}: ChatWindowProps) => {
   const [newMessage, setNewMessage] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  const { messages, loading, sendMessage, markAsRead } = useMessages(chatId);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -43,19 +45,32 @@ const ChatWindow = ({ chatId, recipientName, recipientAvatar, onBack, onDeleteCh
     scrollToBottom();
   }, [messages]);
 
-  const handleSendMessage = () => {
+  useEffect(() => {
+    // Get current user ID
+    const getCurrentUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setCurrentUserId(user?.id || null);
+    };
+    getCurrentUser();
+  }, []);
+
+  useEffect(() => {
+    // Mark unread messages as read when entering chat
+    if (currentUserId && messages.length > 0) {
+      const unreadMessages = messages
+        .filter(msg => msg.recipient_id === currentUserId && !msg.is_read)
+        .map(msg => msg.id);
+      
+      if (unreadMessages.length > 0) {
+        markAsRead(unreadMessages);
+      }
+    }
+  }, [messages, currentUserId, markAsRead]);
+
+  const handleSendMessage = async () => {
     if (newMessage.trim()) {
-      const message: Message = {
-        id: Date.now().toString(),
-        senderId: 'me',
-        content: newMessage,
-        timestamp: new Date(),
-        isRead: false
-      };
-      setMessages([...messages, message]);
+      await sendMessage(newMessage, recipientId);
       setNewMessage('');
-      console.log('Sending message:', message);
-      // TODO: Implement actual message sending to database
     }
   };
 
@@ -67,18 +82,26 @@ const ChatWindow = ({ chatId, recipientName, recipientAvatar, onBack, onDeleteCh
   };
 
   const handleDeleteChat = () => {
-    if (chatId && onDeleteChat) {
+    if (onDeleteChat) {
       onDeleteChat(chatId);
       onBack();
     }
   };
 
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const formatTime = (dateString: string) => {
+    return new Date(dateString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   // Mock online status - would come from real-time presence in production
-  const isOnline = Math.random() > 0.5; // Random for demo, replace with real presence
+  const isOnline = Math.random() > 0.5;
+
+  if (loading && messages.length === 0) {
+    return (
+      <Card className="max-w-4xl mx-auto bg-white/80 backdrop-blur-sm border-0 shadow-lg h-[600px] flex items-center justify-center">
+        <div className="animate-pulse text-lg">Loading messages...</div>
+      </Card>
+    );
+  }
 
   return (
     <Card className="max-w-4xl mx-auto bg-white/80 backdrop-blur-sm border-0 shadow-lg h-[600px] flex flex-col">
@@ -125,11 +148,11 @@ const ChatWindow = ({ chatId, recipientName, recipientAvatar, onBack, onDeleteCh
           messages.map((message) => (
             <div
               key={message.id}
-              className={`flex ${message.senderId === 'me' ? 'justify-end' : 'justify-start'}`}
+              className={`flex ${message.sender_id === currentUserId ? 'justify-end' : 'justify-start'}`}
             >
               <div
                 className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${
-                  message.senderId === 'me'
+                  message.sender_id === currentUserId
                     ? 'bg-gradient-neighborlly text-white'
                     : 'bg-gray-100 text-gray-900'
                 }`}
@@ -137,25 +160,14 @@ const ChatWindow = ({ chatId, recipientName, recipientAvatar, onBack, onDeleteCh
                 <p className="text-sm">{message.content}</p>
                 <p
                   className={`text-xs mt-1 ${
-                    message.senderId === 'me' ? 'text-white/70' : 'text-gray-500'
+                    message.sender_id === currentUserId ? 'text-white/70' : 'text-gray-500'
                   }`}
                 >
-                  {formatTime(message.timestamp)}
+                  {formatTime(message.created_at)}
                 </p>
               </div>
             </div>
           ))
-        )}
-        {isTyping && (
-          <div className="flex justify-start">
-            <div className="bg-gray-100 px-4 py-2 rounded-2xl">
-              <div className="flex space-x-1">
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-              </div>
-            </div>
-          </div>
         )}
         <div ref={messagesEndRef} />
       </CardContent>

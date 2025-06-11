@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -28,10 +29,19 @@ import ServicesDebug from '@/components/ServicesDebug';
 import { geolocationService, Location, Job } from '@/services/geolocationService';
 import { useServices } from '@/hooks/useServices';
 import { useActiveUsers } from '@/hooks/useActiveUsers';
+import { useChats } from '@/hooks/useChats';
+import { supabase } from '@/integrations/supabase/client';
+
+interface SelectedChat {
+  chatId: string;
+  recipientId: string;
+  recipientName: string;
+  recipientAvatar?: string;
+}
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState('discover');
-  const [selectedChat, setSelectedChat] = useState<string | null>(null);
+  const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showMap, setShowMap] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
