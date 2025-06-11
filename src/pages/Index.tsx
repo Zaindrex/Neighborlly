@@ -237,10 +237,13 @@ const Index = () => {
         return;
       }
 
-      // Get the service provider's user_id
+      // Get the service provider's user_id and profile information
       const { data: serviceData, error: serviceError } = await supabase
         .from('services')
-        .select('user_id, profiles(name, avatar_url)')
+        .select(`
+          user_id,
+          profiles!inner(name, avatar_url)
+        `)
         .eq('id', service.id)
         .single();
 
@@ -815,3 +818,5 @@ const Index = () => {
 };
 
 export default Index;
+
+}
