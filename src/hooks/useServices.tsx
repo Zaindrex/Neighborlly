@@ -40,61 +40,16 @@ export const useServices = () => {
       const { data: { user } } = await supabase.auth.getUser();
       console.log('Current user:', user?.id);
 
-      // First try to get services without any filters to see if RLS is the issue
+      // Get services data
       const { data: servicesData, error: servicesError } = await supabase
         .from('services')
         .select('*')
         .order('created_at', { ascending: false });
 
-      console.log('Raw services query result:', { data: servicesData, error: servicesError });
+      console.log('Services query result:', { data: servicesData, error: servicesError });
 
       if (servicesError) {
         console.error('Services error:', servicesError);
-        
-        // If it's an RLS error, try to fetch only user's own services
-        if (servicesError.code === '42501' || servicesError.message?.includes('RLS')) {
-          console.log('RLS policy blocking, trying to fetch user services only...');
-          if (user) {
-            const { data: userServicesData, error: userServicesError } = await supabase
-              .from('services')
-              .select('*')
-              .eq('user_id', user.id)
-              .order('created_at', { ascending: false });
-            
-            console.log('User services result:', { data: userServicesData, error: userServicesError });
-            
-            if (userServicesError) {
-              throw userServicesError;
-            }
-            
-            const servicesWithProfiles = await Promise.all(
-              (userServicesData || []).map(async (service) => {
-                const { data: profileData } = await supabase
-                  .from('profiles')
-                  .select('name, rating, avatar_url')
-                  .eq('user_id', service.user_id)
-                  .single();
-
-                return {
-                  ...service,
-                  profiles: profileData ? {
-                    name: profileData.name || 'Unknown User',
-                    rating: profileData.rating || 0,
-                    avatar_url: profileData.avatar_url
-                  } : {
-                    name: 'Unknown User',
-                    rating: 0,
-                    avatar_url: undefined
-                  }
-                };
-              })
-            );
-
-            setServices(servicesWithProfiles);
-            return;
-          }
-        }
-        
         throw servicesError;
       }
 
@@ -106,7 +61,7 @@ export const useServices = () => {
 
       console.log('Found services:', servicesData.length);
 
-      // Fetch profiles for each service
+      // Fetch profiles for each service separately
       const servicesWithProfiles = await Promise.all(
         servicesData.map(async (service) => {
           console.log('Fetching profile for user_id:', service.user_id);
