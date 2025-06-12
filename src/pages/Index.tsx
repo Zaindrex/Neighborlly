@@ -265,12 +265,13 @@ const Index = () => {
         return;
       }
 
-      // Set up the selected chat properly
-      const profileData = serviceData.profiles && 
-        serviceData.profiles !== null && 
-        typeof serviceData.profiles === 'object' && 
-        'name' in serviceData.profiles 
-        ? serviceData.profiles as { name: string; avatar_url?: string }
+      // Set up the selected chat properly with proper null checking
+      const profiles = serviceData.profiles;
+      const profileData = profiles && 
+        profiles !== null && 
+        typeof profiles === 'object' && 
+        'name' in profiles 
+        ? profiles as { name: string; avatar_url?: string }
         : null;
 
       setSelectedChat({
