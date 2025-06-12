@@ -43,15 +43,7 @@ export const useChats = () => {
 
       const { data: chatsData, error } = await supabase
         .from('chats')
-        .select(`
-          *,
-          messages!inner(
-            content,
-            created_at,
-            is_read,
-            sender_id
-          )
-        `)
+        .select('*')
         .or(`participant_1.eq.${user.id},participant_2.eq.${user.id}`)
         .order('last_message_at', { ascending: false });
 
@@ -155,14 +147,78 @@ export const useChats = () => {
     }
   };
 
+  const deleteChat = async (chatId: string) => {
+    try {
+      const { error } = await supabase
+        .from('chats')
+        .delete()
+        .eq('id', chatId);
+
+      if (error) throw error;
+
+      setChats(prev => prev.filter(chat => chat.id !== chatId));
+      
+      toast({
+        title: "Success",
+        description: "Chat deleted successfully",
+      });
+    } catch (error) {
+      console.error('Error deleting chat:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete chat",
+        variant: "destructive",
+      });
+    }
+  };
+
   useEffect(() => {
     fetchChats();
+  }, []);
+
+  // Set up real-time subscription for chat updates
+  useEffect(() => {
+    console.log('Setting up real-time subscription for chats');
+
+    const channel = supabase
+      .channel('chats-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'chats'
+        },
+        (payload) => {
+          console.log('Chat updated:', payload);
+          fetchChats(); // Refresh chats when any chat is updated
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages'
+        },
+        (payload) => {
+          console.log('New message in any chat:', payload);
+          fetchChats(); // Refresh chats to update last message and unread count
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log('Cleaning up chats real-time subscription');
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   return {
     chats,
     loading,
     refreshChats: fetchChats,
-    startChat
+    startChat,
+    deleteChat
   };
 };

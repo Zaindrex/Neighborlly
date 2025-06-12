@@ -63,8 +63,7 @@ export const useMessages = (chatId: string | null) => {
         .update({ last_message_at: new Date().toISOString() })
         .eq('id', chatId);
 
-      // Add message to local state immediately
-      setMessages(prev => [...prev, data]);
+      console.log('Message sent successfully:', data);
       
     } catch (error) {
       console.error('Error sending message:', error);
@@ -100,6 +99,59 @@ export const useMessages = (chatId: string | null) => {
 
   useEffect(() => {
     fetchMessages();
+  }, [chatId]);
+
+  // Set up real-time subscription for new messages
+  useEffect(() => {
+    if (!chatId) return;
+
+    console.log('Setting up real-time subscription for chat:', chatId);
+
+    const channel = supabase
+      .channel(`messages:${chatId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `chat_id=eq.${chatId}`
+        },
+        (payload) => {
+          console.log('New message received:', payload);
+          const newMessage = payload.new as Message;
+          setMessages(prev => {
+            // Check if message already exists to prevent duplicates
+            const exists = prev.some(msg => msg.id === newMessage.id);
+            if (exists) return prev;
+            return [...prev, newMessage];
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `chat_id=eq.${chatId}`
+        },
+        (payload) => {
+          console.log('Message updated:', payload);
+          const updatedMessage = payload.new as Message;
+          setMessages(prev => 
+            prev.map(msg => 
+              msg.id === updatedMessage.id ? updatedMessage : msg
+            )
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log('Cleaning up real-time subscription');
+      supabase.removeChannel(channel);
+    };
   }, [chatId]);
 
   return {
