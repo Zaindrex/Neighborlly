@@ -1,506 +1,823 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useServices, Service } from '@/hooks/useServices';
-import { useProfile } from '@/hooks/useProfile';
-import { useAuth } from '@/contexts/AuthContext';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { 
+  MapPin, 
+  MessageCircle, 
+  Users, 
+  Star, 
+  Search, 
+  Plus,
+  Briefcase,
+  Code,
+  User,
+  Navigation,
+  AlertCircle,
+  RefreshCw
+} from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { Skeleton } from "@/components/ui/skeleton"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import { Textarea } from "@/components/ui/textarea"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 import { useToast } from '@/hooks/use-toast';
-import { geolocationService } from '@/services/geolocationService';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { Slider } from "@/components/ui/slider"
-import { cn } from "@/lib/utils"
-import { Calendar } from "@/components/ui/calendar"
-import { CalendarIcon } from "lucide-react"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { format } from "date-fns"
-import { DateRange } from "react-day-picker"
-import { useSearchParams } from 'react-router-dom';
+import UserProfile from '@/components/UserProfile';
+import ChatWindow from '@/components/ChatWindow';
+import PostServiceForm from '@/components/PostServiceForm';
+import LocationPermission from '@/components/LocationPermission';
+import GeofenceMap from '@/components/GeofenceMap';
+import ServicesDebug from '@/components/ServicesDebug';
+import { geolocationService, Location, Job } from '@/services/geolocationService';
+import { useServices } from '@/hooks/useServices';
+import { useActiveUsers } from '@/hooks/useActiveUsers';
+import { useChats } from '@/hooks/useChats';
+import { supabase } from '@/integrations/supabase/client';
 
-interface Chat {
-  id: string;
-  name: string;
-  avatar?: string;
-  lastMessage: string;
-  time: string;
-  unread: number;
+interface SelectedChat {
+  chatId: string;
+  recipientId: string;
+  recipientName: string;
+  recipientAvatar?: string;
 }
 
 const Index = () => {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const { services, loading, error, refreshServices } = useServices();
-  const { profile } = useProfile();
-  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState('discover');
+  const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showMap, setShowMap] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
+  
+  // Geolocation states
+  const [userLocation, setUserLocation] = useState<Location | null>(null);
+  const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [isLoadingLocation, setIsLoadingLocation] = useState(false);
+  
+  // Jobs states
+  const [allJobs, setAllJobs] = useState<Job[]>([]);
+  const [filteredJobs, setFilteredJobs] = useState<Job[]>([]);
+  const [outOfRangeJobs, setOutOfRangeJobs] = useState<Job[]>([]);
+  const [lastLocationUpdate, setLastLocationUpdate] = useState<number>(0);
+
   const { toast } = useToast();
+  const { services, loading: servicesLoading, refreshServices } = useServices();
+  const activeUsersCount = useActiveUsers();
+  const { chats, refreshChats, startChat } = useChats();
 
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [locationEnabled, setLocationEnabled] = useState(false);
-  const [currentLocation, setCurrentLocation] = useState(null);
-  const [date, setDate] = useState<DateRange | undefined>({
-    from: searchParams.get("from") ? new Date(searchParams.get("from") as string) : undefined,
-    to: searchParams.get("to") ? new Date(searchParams.get("to") as string) : undefined
-  })
-  const [priceRange, setPriceRange] = useState<number[]>([0, 100]);
+  // Empty chats array - real data would come from database/API
+  const [userChats, setUserChats] = useState<any[]>([]);
 
-  const [isCreateServiceOpen, setIsCreateServiceOpen] = useState(false);
-  const [newService, setNewService] = useState({
-    title: '',
-    description: '',
-    category: '',
-    tags: '',
-    price: '',
-    price_type: 'fixed',
-    location: '',
-    latitude: 0,
-    longitude: 0,
-  });
+  // Calculate unread message count from real chats
+  const unreadCount = userChats.reduce((total, chat) => total + chat.unread, 0);
 
-  const filteredServices = services.filter(service => {
-    const searchRegex = new RegExp(searchTerm, 'i');
-    const matchesSearch = searchRegex.test(service.title) || searchRegex.test(service.description || '');
+  // Convert services to jobs format
+  useEffect(() => {
+    console.log('Converting services to jobs:', services);
+    const convertedJobs: Job[] = services.map(service => ({
+      id: service.id,
+      title: service.title,
+      provider: service.profiles?.name || 'Unknown Provider',
+      description: service.description || '',
+      price: `₹${service.price}`,
+      rating: service.profiles?.rating?.toString() || '4.5',
+      reviews: Math.floor(Math.random() * 100) + 1,
+      latitude: service.latitude || 0,
+      longitude: service.longitude || 0,
+      category: service.category,
+      tags: service.tags || [],
+      icon: 'Code',
+      color: 'bg-blue-500'
+    }));
 
-    const matchesCategory = categoryFilter ? service.category === categoryFilter : true;
+    console.log('Converted jobs:', convertedJobs);
+    setAllJobs(convertedJobs);
+  }, [services]);
 
-    return matchesSearch && matchesCategory;
-  });
-
-  const handleChatClick = async (serviceId: string) => {
-    const serviceData = services.find(s => s.id === serviceId);
-    if (!serviceData) {
-      console.error('Service not found for chat');
-      return;
+  // Initialize geolocation on component mount
+  useEffect(() => {
+    // Check if we already have location permission
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+        if (result.state === 'granted') {
+          handleLocationGranted();
+        }
+      });
     }
 
-    // Set up the selected chat properly with proper null checking
-    const profiles = serviceData.profiles;
-    const profileData = profiles && 
-      profiles !== null && 
-      typeof profiles === 'object' && 
-      profiles !== null &&
-      'name' in profiles 
-      ? profiles as { name: string; avatar_url?: string }
-      : null;
-
-    setSelectedChat({
-      id: serviceData.user_id,
-      name: profileData?.name || 'Unknown User',
-      avatar: profileData?.avatar_url || undefined,
-      lastMessage: '',
-      time: '',
-      unread: 0
+    // Set up geolocation service callbacks
+    geolocationService.onLocationUpdate((location) => {
+      console.log('Location updated:', location);
+      setUserLocation(location);
+      setLastLocationUpdate(Date.now());
+      filterJobsByLocation();
+      toast({
+        title: "Location Updated",
+        description: "Job listings refreshed based on your new location",
+      });
     });
-    setIsChatOpen(true);
+
+    geolocationService.onLocationError((error) => {
+      console.error('Location error:', error);
+      setLocationError(error.message);
+    });
+
+    // Auto-refresh every 60 seconds
+    const refreshInterval = setInterval(() => {
+      if (locationPermissionGranted && userLocation) {
+        refreshLocation();
+        refreshServices(); // Also refresh services data
+      }
+    }, 60000);
+
+    return () => {
+      clearInterval(refreshInterval);
+      geolocationService.stopWatchingLocation();
+    };
+  }, []);
+
+  // Filter jobs when location or jobs change
+  useEffect(() => {
+    if (userLocation && allJobs.length > 0) {
+      filterJobsByLocation();
+    }
+  }, [userLocation, allJobs]);
+
+  const handleLocationGranted = async () => {
+    setIsLoadingLocation(true);
+    try {
+      const location = await geolocationService.getCurrentLocation();
+      setUserLocation(location);
+      setLocationPermissionGranted(true);
+      setLocationError(null);
+      
+      // Start watching location for updates
+      geolocationService.startWatchingLocation();
+      
+      toast({
+        title: "Location Access Granted",
+        description: "Now showing jobs within 5km of your location",
+      });
+    } catch (error) {
+      console.error('Error getting location:', error);
+      setLocationError(error instanceof Error ? error.message : 'Failed to get location');
+    } finally {
+      setIsLoadingLocation(false);
+    }
   };
 
-  const handleCreateService = async () => {
-    if (!user) {
-      toast({
-        title: "Error",
-        description: "You must be logged in to create a service.",
-        variant: "destructive",
-      });
-      return;
+  const handleLocationDenied = (error: string) => {
+    setLocationError(error);
+    setLocationPermissionGranted(false);
+    toast({
+      title: "Location Access Denied",
+      description: "You can manually search for jobs in your area",
+      variant: "destructive"
+    });
+  };
+
+  const refreshLocation = async () => {
+    if (!locationPermissionGranted) return;
+    
+    setIsLoadingLocation(true);
+    try {
+      const location = await geolocationService.getCurrentLocation();
+      setUserLocation(location);
+      setLastLocationUpdate(Date.now());
+      filterJobsByLocation();
+    } catch (error) {
+      console.error('Error refreshing location:', error);
+    } finally {
+      setIsLoadingLocation(false);
+    }
+  };
+
+  const filterJobsByLocation = () => {
+    if (!userLocation || allJobs.length === 0) return;
+
+    const { withinRange, outOfRange } = geolocationService.filterJobsByGeofence(allJobs);
+    setFilteredJobs(withinRange);
+    setOutOfRangeJobs(outOfRange);
+    
+    console.log(`Filtered ${withinRange.length} jobs within 5km range`);
+  };
+
+  // Search logic
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    applySearch(query);
+  };
+
+  const applySearch = (query: string) => {
+    let jobsToFilter = locationPermissionGranted ? filteredJobs : allJobs;
+
+    // Search by title, provider, description, or tags
+    if (query.trim()) {
+      jobsToFilter = jobsToFilter.filter(job =>
+        job.title.toLowerCase().includes(query.toLowerCase()) ||
+        job.provider.toLowerCase().includes(query.toLowerCase()) ||
+        job.description?.toLowerCase().includes(query.toLowerCase()) ||
+        job.tags?.some((tag: string) => tag.toLowerCase().includes(query.toLowerCase()))
+      );
     }
 
-    try {
-      const { data, error } = await (window as any).supabase
-        .from('services')
-        .insert([
-          {
-            ...newService,
-            user_id: user.id,
-            tags: newService.tags.split(',').map(tag => tag.trim()),
-            latitude: currentLocation?.latitude || null,
-            longitude: currentLocation?.longitude || null,
-            location: newService.location || null,
-          },
-        ])
-        .select();
+    if (searchQuery) {
+      setFilteredJobs(jobsToFilter);
+    }
+  };
 
-      if (error) {
-        throw error;
+  const handleChatClick = async (service: any) => {
+    console.log('Starting chat with service provider:', service);
+    
+    try {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        toast({
+          title: "Authentication Required",
+          description: "Please log in to start a chat",
+          variant: "destructive"
+        });
+        return;
       }
 
-      toast({
-        title: "Success!",
-        description: "Service created successfully.",
-      });
+      // Get the service provider's user_id
+      const { data: serviceData, error: serviceError } = await supabase
+        .from('services')
+        .select('user_id, profiles(name, avatar_url)')
+        .eq('id', service.id)
+        .single();
 
-      setIsCreateServiceOpen(false);
-      refreshServices();
-    } catch (error: any) {
+      if (serviceError || !serviceData) {
+        console.error('Error fetching service data:', serviceError);
+        toast({
+          title: "Error",
+          description: "Could not start chat with this provider",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Start or get existing chat
+      const chatId = await startChat(serviceData.user_id);
+      if (!chatId) {
+        toast({
+          title: "Error",
+          description: "Failed to start chat",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Set up the selected chat properly with proper null checking
+      const profiles = serviceData.profiles;
+      const profileData = profiles && 
+        profiles !== null && 
+        typeof profiles === 'object' && 
+        'name' in profiles 
+        ? profiles as { name: string; avatar_url?: string }
+        : null;
+
+      setSelectedChat({
+        chatId: chatId,
+        recipientId: serviceData.user_id,
+        recipientName: profileData?.name || 'Service Provider',
+        recipientAvatar: profileData?.avatar_url
+      });
+      setActiveTab('chats');
+    } catch (error) {
+      console.error('Error in handleChatClick:', error);
       toast({
         title: "Error",
-        description: error.message || "An error occurred. Please try again.",
-        variant: "destructive",
+        description: "Failed to start chat",
+        variant: "destructive"
       });
     }
   };
 
-  const handleLocationToggle = () => {
-    setLocationEnabled(!locationEnabled);
-
-    if (!locationEnabled) {
-      geolocationService.getCurrentLocation()
-        .then(location => {
-          setCurrentLocation(location);
-          setNewService(prev => ({
-            ...prev,
-            latitude: location.latitude,
-            longitude: location.longitude,
-          }));
-          toast({
-            title: "Location Enabled",
-            description: "Your location has been enabled.",
-          });
-        })
-        .catch(error => {
-          console.error("Error getting location:", error);
-          toast({
-            title: "Error",
-            description: "Failed to get your location. Please try again.",
-            variant: "destructive",
-          });
-          setLocationEnabled(false);
-        });
-    } else {
-      setCurrentLocation(null);
-      setNewService(prev => ({
-        ...prev,
-        latitude: 0,
-        longitude: 0,
-      }));
-      toast({
-        title: "Location Disabled",
-        description: "Your location has been disabled.",
-      });
-    }
+  const handleDeleteChat = (chatId: string) => {
+    console.log('Deleting chat:', chatId);
+    setUserChats(prevChats => prevChats.filter(chat => chat.id !== chatId));
   };
 
-  const categories = [...new Set(services.map(service => service.category))];
+  // Determine which jobs to show
+  const getJobsToDisplay = () => {
+    if (searchQuery) {
+      return filteredJobs; // Searched results
+    }
+    return locationPermissionGranted ? filteredJobs : allJobs;
+  };
 
-  useEffect(() => {
-    if (date?.from) {
-      searchParams.set("from", date.from.toISOString());
-    } else {
-      searchParams.delete("from");
-    }
-    if (date?.to) {
-      searchParams.set("to", date.to.toISOString());
-    } else {
-      searchParams.delete("to");
-    }
-    setSearchParams(searchParams)
-  }, [date, setSearchParams, searchParams])
+  const jobsToShow = getJobsToDisplay();
+
+  // Show location permission screen if not granted
+  if (!locationPermissionGranted && !locationError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4">
+        <LocationPermission
+          onLocationGranted={handleLocationGranted}
+          onLocationDenied={handleLocationDenied}
+        />
+      </div>
+    );
+  }
 
   return (
-    <div className="container mx-auto py-10">
-      <div className="mb-8 flex items-center space-x-4">
-        <Input
-          type="text"
-          placeholder="Search for services..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="flex-grow"
-        />
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Filter by category" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">All Categories</SelectItem>
-            {categories.map(category => (
-              <SelectItem key={category} value={category}>{category}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="mb-8 flex items-center space-x-4">
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant={"outline"}
-              className={cn(
-                "w-[280px] justify-start text-left font-normal",
-                !date?.from || !date.to ? "text-muted-foreground" : undefined
-              )}
-            >
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              {date?.from && date?.to ? (
-                format(date.from, "PPP") + " - " + format(date.to, "PPP")
-              ) : (
-                <span>Pick a date</span>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="center" side="bottom">
-            <Calendar
-              mode="range"
-              defaultMonth={date?.from}
-              selected={date}
-              onSelect={setDate}
-              numberOfMonths={2}
-              pagedNavigation
-            />
-          </PopoverContent>
-        </Popover>
-        <div>
-          <Label htmlFor="location-enabled" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed">
-            Enable Location
-          </Label>
-          <Switch id="location-enabled" checked={locationEnabled} onCheckedChange={handleLocationToggle} />
-        </div>
-      </div>
-
-      <div className="mb-8">
-        <Label>Price Range</Label>
-        <div className="flex items-center space-x-2">
-          <span>$0</span>
-          <Slider
-            defaultValue={priceRange}
-            max={200}
-            step={10}
-            onValueChange={(value) => setPriceRange(value)}
-          />
-          <span>$200</span>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[...Array(6)].map((_, i) => (
-            <Card key={i}>
-              <CardHeader>
-                <CardTitle><Skeleton className="h-5 w-4/5" /></CardTitle>
-                <CardDescription><Skeleton className="h-4 w-3/5" /></CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-24 w-full" />
-                <div className="mt-4">
-                  <Skeleton className="h-4 w-1/2" />
-                  <Skeleton className="h-4 w-1/3 mt-2" />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : error ? (
-        <div className="text-red-500">Error: {error}</div>
-      ) : filteredServices.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredServices.map(service => (
-            <Card key={service.id} className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle>{service.title}</CardTitle>
-                <CardDescription>{service.category}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p>{service.description}</p>
-                <div className="mt-4">
-                  <Badge className="mr-2">{service.price} {service.price_type}</Badge>
-                  {service.tags?.map((tag, index) => (
-                    <Badge key={index} variant="secondary">{tag}</Badge>
-                  ))}
-                </div>
-                <div className="flex items-center mt-4">
-                  {service.profiles?.avatar_url ? (
-                    <Avatar className="mr-2 h-8 w-8">
-                      <AvatarImage src={service.profiles.avatar_url} alt={service.profiles.name} />
-                      <AvatarFallback>{service.profiles.name.charAt(0)}</AvatarFallback>
-                    </Avatar>
-                  ) : (
-                    <Avatar className="mr-2 h-8 w-8">
-                      <AvatarFallback>{service.profiles?.name?.charAt(0)}</AvatarFallback>
-                    </Avatar>
-                  )}
-                  <span className="text-sm text-gray-500">Offered by {service.profiles?.name || 'Unknown User'}</span>
-                </div>
-                <Button className="w-full mt-4 bg-gradient-neighborlly hover:opacity-90 rounded-xl" onClick={() => handleChatClick(service.id)}>
-                  Contact
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        <div className="text-gray-500">No services found.</div>
-      )}
-
-      <Dialog open={isChatOpen} onOpenChange={setIsChatOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Contact</DialogTitle>
-            <DialogDescription>
-              {selectedChat ? `You are about to contact ${selectedChat.name}.` : 'No contact selected.'}
-            </DialogDescription>
-          </DialogHeader>
-          {selectedChat && (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      {/* Header */}
+      <header className="bg-white/80 backdrop-blur-md border-b sticky top-0 z-50">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-gradient-neighborlly rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-sm">N</span>
+              </div>
+              <h1 className="text-2xl font-bold bg-gradient-neighborlly bg-clip-text text-transparent">
+                Neighborlly
+              </h1>
+            </div>
             <div className="flex items-center space-x-4">
-              {selectedChat.avatar ? (
-                <Avatar className="h-10 w-10">
-                  <AvatarImage src={selectedChat.avatar} alt={selectedChat.name} />
-                  <AvatarFallback>{selectedChat.name.charAt(0)}</AvatarFallback>
-                </Avatar>
-              ) : (
-                <Avatar className="h-10 w-10">
-                  <AvatarFallback>{selectedChat.name.charAt(0)}</AvatarFallback>
-                </Avatar>
+              <Button
+                variant="ghost"
+                onClick={() => setShowDebug(!showDebug)}
+                className="p-2 text-xs"
+                title="Toggle debug"
+              >
+                DEBUG
+              </Button>
+              {locationPermissionGranted && (
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant="ghost"
+                    onClick={refreshLocation}
+                    disabled={isLoadingLocation}
+                    className="p-2"
+                    title="Refresh location"
+                  >
+                    {isLoadingLocation ? (
+                      <RefreshCw className="w-4 h-4 animate-spin text-gray-600" />
+                    ) : (
+                      <Navigation className="w-4 h-4 text-gray-600" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setShowMap(!showMap)}
+                    className="p-2"
+                    title="Toggle map view"
+                  >
+                    <MapPin className="w-4 h-4 text-gray-600" />
+                  </Button>
+                </div>
               )}
-              <div>
-                <p className="text-sm font-medium">{selectedChat.name}</p>
-                <p className="text-xs text-gray-500">Last message: {selectedChat.lastMessage}</p>
+              <Button
+                variant="ghost"
+                onClick={() => setActiveTab('chats')}
+                className="relative p-2"
+              >
+                <MessageCircle className="w-6 h-6 text-gray-600" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                    {unreadCount}
+                  </span>
+                )}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setActiveTab('profile')}
+                className="p-2"
+              >
+                <Avatar className="w-8 h-8">
+                  <AvatarImage src="/api/placeholder/32/32" />
+                  <AvatarFallback>YO</AvatarFallback>
+                </Avatar>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Location Status Banner */}
+      {locationPermissionGranted && userLocation && (
+        <div className="bg-green-50 border-b border-green-200 py-2">
+          <div className="container mx-auto px-4">
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center space-x-2 text-green-700">
+                <MapPin className="w-4 h-4" />
+                <span>
+                  Showing {filteredJobs.length} jobs within 5km • 
+                  {outOfRangeJobs.length} jobs out of range
+                </span>
+              </div>
+              <div className="text-green-600 text-xs">
+                Last updated: {new Date(lastLocationUpdate).toLocaleTimeString()}
               </div>
             </div>
-          )}
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="name" className="text-right">
-                Name
-              </Label>
-              <Input id="name" value={selectedChat?.name} className="col-span-3" disabled />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="email" className="text-right">
-                Email
-              </Label>
-              <Input id="email" value={selectedChat?.id} className="col-span-3" disabled />
+          </div>
+        </div>
+      )}
+
+      {/* Error Banner */}
+      {locationError && (
+        <div className="bg-yellow-50 border-b border-yellow-200 py-2">
+          <div className="container mx-auto px-4">
+            <div className="flex items-center space-x-2 text-yellow-700">
+              <AlertCircle className="w-4 h-4" />
+              <span className="text-sm">{locationError}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleLocationGranted}
+                className="ml-auto text-yellow-700 hover:text-yellow-800"
+              >
+                Retry
+              </Button>
             </div>
           </div>
-          <Button className="w-full bg-gradient-neighborlly hover:opacity-90 rounded-xl" onClick={() => {
-            setIsChatOpen(false);
-            navigate('/messages');
-          }}>
-            Go to Messages
-          </Button>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
 
-      <Dialog open={isCreateServiceOpen} onOpenChange={setIsCreateServiceOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Create a Service</DialogTitle>
-            <DialogDescription>
-              Create a new service to offer your skills to the community.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="title" className="text-right">
-                Title
-              </Label>
-              <Input
-                type="text"
-                id="title"
-                value={newService.title}
-                onChange={(e) => setNewService({ ...newService, title: e.target.value })}
-                className="col-span-3"
+      {/* Hero Section */}
+      <section className="py-12 px-4">
+        <div className="container mx-auto text-center">
+          <div className="animate-fade-in">
+            <h2 className="text-4xl md:text-6xl font-bold mb-6">
+              Find Local Talent{" "}
+              <span className="bg-gradient-neighborlly bg-clip-text text-transparent">
+                Nearby
+              </span>
+            </h2>
+            <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
+              Connect with skilled freelancers and services within 5km of your location. 
+              Chat instantly, hire locally, and build your community.
+            </p>
+          </div>
+
+          {/* Search Bar */}
+          <div className="animate-slide-up max-w-2xl mx-auto mb-12">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <Input 
+                placeholder="Search for services near you..."
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                className="pl-12 pr-4 py-4 text-lg rounded-2xl border-2 border-gray-200 focus:border-neighborlly-purple transition-colors"
               />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="description" className="text-right">
-                Description
-              </Label>
-              <Textarea
-                id="description"
-                value={newService.description}
-                onChange={(e) => setNewService({ ...newService, description: e.target.value })}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="category" className="text-right">
-                Category
-              </Label>
-              <Input
-                type="text"
-                id="category"
-                value={newService.category}
-                onChange={(e) => setNewService({ ...newService, category: e.target.value })}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="tags" className="text-right">
-                Tags (comma separated)
-              </Label>
-              <Input
-                type="text"
-                id="tags"
-                value={newService.tags}
-                onChange={(e) => setNewService({ ...newService, tags: e.target.value })}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="price" className="text-right">
-                Price
-              </Label>
-              <Input
-                type="text"
-                id="price"
-                value={newService.price}
-                onChange={(e) => setNewService({ ...newService, price: e.target.value })}
-                className="col-span-1"
-              />
-              <Select value={newService.price_type} onValueChange={(value) => setNewService({ ...newService, price_type: value })}>
-                <SelectTrigger className="col-span-2">
-                  <SelectValue placeholder="Select a price type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="fixed">Fixed</SelectItem>
-                  <SelectItem value="hourly">Hourly</SelectItem>
-                  <SelectItem value="negotiable">Negotiable</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="location" className="text-right">
-                Location
-              </Label>
-              <Input
-                type="text"
-                id="location"
-                value={newService.location}
-                onChange={(e) => setNewService({ ...newService, location: e.target.value })}
-                className="col-span-3"
-                disabled={locationEnabled}
-              />
+              <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+                <Button className="bg-gradient-neighborlly hover:opacity-90 rounded-xl">
+                  Search
+                </Button>
+              </div>
             </div>
           </div>
-          <Button className="w-full bg-gradient-neighborlly hover:opacity-90 rounded-xl" onClick={handleCreateService}>
-            Create Service
-          </Button>
-        </DialogContent>
-      </Dialog>
 
-      <Button variant="outline" onClick={() => setIsCreateServiceOpen(true)}>Create Service</Button>
+          {/* Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto mb-16">
+            <div className="text-center animate-fade-in" style={{ animationDelay: '0.2s' }}>
+              <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Users className="w-8 h-8 text-neighborlly-blue" />
+              </div>
+              <h3 className="text-2xl font-bold mb-2">{activeUsersCount}+</h3>
+              <p className="text-gray-600">Active freelancers</p>
+            </div>
+            <div className="text-center animate-fade-in" style={{ animationDelay: '0.6s' }}>
+              <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <MapPin className="w-8 h-8 text-neighborlly-green" />
+              </div>
+              <h3 className="text-2xl font-bold mb-2">5km</h3>
+              <p className="text-gray-600">Radius coverage</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Navigation Tabs */}
+      <div className="container mx-auto px-4 mb-8">
+        <div className="flex justify-center">
+          <div className="bg-white rounded-2xl p-2 shadow-lg border">
+            <div className="flex space-x-2">
+              <Button
+                variant={activeTab === 'discover' ? 'default' : 'ghost'}
+                onClick={() => setActiveTab('discover')}
+                className={`rounded-xl px-6 py-2 ${
+                  activeTab === 'discover' 
+                    ? 'bg-gradient-neighborlly text-white' 
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Search className="w-4 h-4 mr-2" />
+                Discover
+              </Button>
+              <Button
+                variant={activeTab === 'chats' ? 'default' : 'ghost'}
+                onClick={() => setActiveTab('chats')}
+                className={`rounded-xl px-6 py-2 ${
+                  activeTab === 'chats' 
+                    ? 'bg-gradient-neighborlly text-white' 
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <MessageCircle className="w-4 h-4 mr-2" />
+                Chats
+              </Button>
+              <Button
+                variant={activeTab === 'post' ? 'default' : 'ghost'}
+                onClick={() => setActiveTab('post')}
+                className={`rounded-xl px-6 py-2 ${
+                  activeTab === 'post' 
+                    ? 'bg-gradient-neighborlly text-white' 
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Post Service
+              </Button>
+              <Button
+                variant={activeTab === 'profile' ? 'default' : 'ghost'}
+                onClick={() => setActiveTab('profile')}
+                className={`rounded-xl px-6 py-2 ${
+                  activeTab === 'profile' 
+                    ? 'bg-gradient-neighborlly text-white' 
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <User className="w-4 h-4 mr-2" />
+                Profile
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Content Area */}
+      <div className="container mx-auto px-4 pb-16">
+        {showDebug && <ServicesDebug />}
+        
+        {activeTab === 'discover' && (
+          <div className="space-y-6">
+            {/* Map Component */}
+            {showMap && locationPermissionGranted && userLocation && (
+              <GeofenceMap
+                userLocation={userLocation}
+                jobs={allJobs}
+                filteredJobs={filteredJobs}
+                className="mb-6"
+              />
+            )}
+
+            {searchQuery && (
+              <div className="mb-4">
+                <p className="text-gray-600">
+                  {jobsToShow.length} results for "{searchQuery}"
+                  {locationPermissionGranted && (
+                    <span className="text-sm text-gray-500 ml-2">
+                      (within 5km radius)
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+
+            {servicesLoading && (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-neighborlly-purple mx-auto mb-4"></div>
+                <p className="text-gray-500">Loading services...</p>
+              </div>
+            )}
+
+            {!servicesLoading && jobsToShow.length === 0 && !searchQuery && (
+              <div className="text-center py-12">
+                <p className="text-gray-500 text-lg mb-4">
+                  {locationPermissionGranted 
+                    ? "No services available within 5km of your location."
+                    : "No services available yet."
+                  }
+                </p>
+                <p className="text-gray-400">Be the first to post a service in your area!</p>
+                <Button
+                  onClick={() => setActiveTab('post')}
+                  className="mt-4 bg-gradient-neighborlly hover:opacity-90 rounded-xl"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Post Service
+                </Button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {jobsToShow.map((job) => (
+                <Card key={job.id} className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2 bg-white/80 backdrop-blur-sm border-0 shadow-lg">
+                  <CardHeader className="pb-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className={`w-12 h-12 ${job.color} rounded-xl flex items-center justify-center`}>
+                          <Code className="w-6 h-6 text-white" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-lg group-hover:text-neighborlly-purple transition-colors">
+                            {job.title}
+                          </CardTitle>
+                          <p className="text-sm text-gray-600">{job.provider}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                        <span className="text-sm font-medium">{job.rating}</span>
+                        <span className="text-xs text-gray-500">({job.reviews})</span>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <CardDescription className="mb-4 text-gray-600">
+                      {job.description}
+                    </CardDescription>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {job.tags?.map((tag: string) => (
+                        <Badge key={tag} variant="secondary" className="bg-gray-100 text-gray-700 hover:bg-gray-200">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center text-sm text-gray-500 mb-1">
+                          <MapPin className="w-3 h-3 mr-1" />
+                          {job.distance || 'Distance unknown'}
+                        </div>
+                        <div className="flex items-center text-lg font-bold text-neighborlly-purple">
+                          {job.price}/hour
+                        </div>
+                      </div>
+                      <Button 
+                        className="bg-gradient-neighborlly hover:opacity-90 rounded-xl"
+                        onClick={() => handleChatClick(job)}
+                      >
+                        <MessageCircle className="w-4 h-4 mr-2" />
+                        Chat
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {!servicesLoading && jobsToShow.length === 0 && searchQuery && (
+              <div className="text-center py-12">
+                <p className="text-gray-500 text-lg">No services found matching your search.</p>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setFilteredJobs(locationPermissionGranted ? filteredJobs : allJobs);
+                  }}
+                  className="mt-4"
+                >
+                  Clear Search
+                </Button>
+              </div>
+            )}
+
+            {/* Out of Range Jobs */}
+            {locationPermissionGranted && outOfRangeJobs.length > 0 && !searchQuery && (
+              <div className="mt-12">
+                <div className="border-t pt-8">
+                  <h3 className="text-xl font-semibold text-gray-600 mb-4">
+                    Jobs Outside Your Area ({outOfRangeJobs.length})
+                  </h3>
+                  <p className="text-gray-500 text-sm mb-6">
+                    These jobs are more than 5km away from your current location
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {outOfRangeJobs.slice(0, 6).map((job) => (
+                      <Card key={job.id} className="opacity-60 bg-gray-50 border border-gray-200">
+                        <CardHeader className="pb-4">
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-12 h-12 bg-gray-400 rounded-xl flex items-center justify-center">
+                                <Code className="w-6 h-6 text-white" />
+                              </div>
+                              <div>
+                                <CardTitle className="text-lg text-gray-600">
+                                  {job.title}
+                                </CardTitle>
+                                <p className="text-sm text-gray-500">{job.provider}</p>
+                              </div>
+                            </div>
+                            <Badge variant="secondary" className="bg-red-100 text-red-700">
+                              Out of range
+                            </Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <CardDescription className="mb-4 text-gray-500">
+                            {job.description}
+                          </CardDescription>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="flex items-center text-sm text-gray-400 mb-1">
+                                <MapPin className="w-3 h-3 mr-1" />
+                                Too far away
+                              </div>
+                              <div className="flex items-center text-lg font-bold text-gray-500">
+                                {job.price}/hour
+                              </div>
+                            </div>
+                            <Button disabled className="bg-gray-300 text-gray-500 rounded-xl">
+                              <MessageCircle className="w-4 h-4 mr-2" />
+                              Out of Range
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'chats' && (
+          <div className="max-w-4xl mx-auto">
+            {selectedChat ? (
+              <ChatWindow
+                chatId={selectedChat.chatId}
+                recipientId={selectedChat.recipientId}
+                recipientName={selectedChat.recipientName}
+                recipientAvatar={selectedChat.recipientAvatar}
+                onBack={() => setSelectedChat(null)}
+                onDeleteChat={handleDeleteChat}
+              />
+            ) : (
+              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <MessageCircle className="w-5 h-5 mr-2 text-neighborlly-purple" />
+                    Recent Conversations
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-6">
+                  {chats.length === 0 ? (
+                    <div className="text-center py-8">
+                      <MessageCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                      <p className="text-gray-500 text-lg mb-2">No conversations yet</p>
+                      <p className="text-gray-400 text-sm">Start chatting with service providers to see your conversations here.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {chats.map((chat) => (
+                        <div
+                          key={chat.id}
+                          className="flex items-center space-x-3 p-4 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                          onClick={() => setSelectedChat({
+                            chatId: chat.id,
+                            recipientId: chat.other_user?.id || '',
+                            recipientName: chat.other_user?.name || 'Unknown User',
+                            recipientAvatar: chat.other_user?.avatar_url
+                          })}
+                        >
+                          <Avatar className="w-12 h-12">
+                            <AvatarImage src={chat.other_user?.avatar_url} />
+                            <AvatarFallback>
+                              {chat.other_user?.name?.charAt(0) || 'U'}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <h3 className="font-medium">{chat.other_user?.name || 'Unknown User'}</h3>
+                              <span className="text-xs text-gray-500">
+                                {new Date(chat.last_message_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-600 truncate">
+                              {chat.last_message || 'No messages yet'}
+                            </p>
+                          </div>
+                          {chat.unread_count && chat.unread_count > 0 && (
+                            <Badge variant="destructive" className="min-w-[20px] h-5 text-xs">
+                              {chat.unread_count}
+                            </Badge>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'post' && <PostServiceForm onServicePosted={refreshServices} />}
+
+        {activeTab === 'profile' && <UserProfile />}
+      </div>
+
+      {/* Floating Action Button */}
+      <div className="fixed bottom-6 right-6">
+        <Button 
+          className="w-14 h-14 rounded-full bg-gradient-neighborlly hover:opacity-90 shadow-lg"
+          onClick={() => setActiveTab('post')}
+        >
+          <Plus className="w-6 h-6" />
+        </Button>
+      </div>
     </div>
   );
 };
