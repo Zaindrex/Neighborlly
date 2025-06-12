@@ -59,7 +59,7 @@ const Index = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [locationEnabled, setLocationEnabled] = useState(false);
   const [currentLocation, setCurrentLocation] = useState(null);
   const [date, setDate] = useState<DateRange | undefined>({
@@ -85,7 +85,7 @@ const Index = () => {
     const searchRegex = new RegExp(searchTerm, 'i');
     const matchesSearch = searchRegex.test(service.title) || searchRegex.test(service.description || '');
 
-    const matchesCategory = categoryFilter === 'all' ? true : service.category === categoryFilter;
+    const matchesCategory = categoryFilter ? service.category === categoryFilter : true;
 
     return matchesSearch && matchesCategory;
   });
@@ -102,6 +102,7 @@ const Index = () => {
     const profileData = profiles && 
       profiles !== null && 
       typeof profiles === 'object' && 
+      profiles !== null &&
       'name' in profiles 
       ? profiles as { name: string; avatar_url?: string }
       : null;
@@ -233,7 +234,7 @@ const Index = () => {
             <SelectValue placeholder="Filter by category" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Categories</SelectItem>
+            <SelectItem value="">All Categories</SelectItem>
             {categories.map(category => (
               <SelectItem key={category} value={category}>{category}</SelectItem>
             ))}
@@ -323,9 +324,9 @@ const Index = () => {
               <CardContent>
                 <p>{service.description}</p>
                 <div className="mt-4">
-                  <Badge className="mr-2">{service.price}  {service.price_type}</Badge>
+                  <Badge className="mr-2">{service.price} {service.price_type}</Badge>
                   {service.tags?.map((tag, index) => (
-                    <Badge key={index} variant="secondary" className="mr-1">{tag}</Badge>
+                    <Badge key={index} variant="secondary">{tag}</Badge>
                   ))}
                 </div>
                 <div className="flex items-center mt-4">
