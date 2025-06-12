@@ -266,11 +266,15 @@ const Index = () => {
       }
 
       // Set up the selected chat properly
+      const profileData = serviceData.profiles && typeof serviceData.profiles === 'object' && 'name' in serviceData.profiles 
+        ? serviceData.profiles as { name: string; avatar_url?: string }
+        : null;
+
       setSelectedChat({
         chatId: chatId,
         recipientId: serviceData.user_id,
-        recipientName: serviceData.profiles?.name || 'Service Provider',
-        recipientAvatar: serviceData.profiles?.avatar_url
+        recipientName: profileData?.name || 'Service Provider',
+        recipientAvatar: profileData?.avatar_url
       });
       setActiveTab('chats');
     } catch (error) {
