@@ -266,7 +266,10 @@ const Index = () => {
       }
 
       // Set up the selected chat properly
-      const profileData = serviceData.profiles && typeof serviceData.profiles === 'object' && 'name' in serviceData.profiles 
+      const profileData = serviceData.profiles && 
+        serviceData.profiles !== null && 
+        typeof serviceData.profiles === 'object' && 
+        'name' in serviceData.profiles 
         ? serviceData.profiles as { name: string; avatar_url?: string }
         : null;
 
