@@ -15,10 +15,22 @@ import {
   User,
   Navigation,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  Trash2
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import UserProfile from '@/components/UserProfile';
 import ChatWindow from '@/components/ChatWindow';
 import PostServiceForm from '@/components/PostServiceForm';
@@ -44,6 +56,7 @@ const Index = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showMap, setShowMap] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
   // Geolocation states
   const [userLocation, setUserLocation] = useState<Location | null>(null);
@@ -67,6 +80,15 @@ const Index = () => {
 
   // Calculate unread message count from real chats
   const unreadCount = userChats.reduce((total, chat) => total + chat.unread, 0);
+
+  // Get current user ID on component mount
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setCurrentUserId(user?.id || null);
+    };
+    getCurrentUser();
+  }, []);
 
   // Convert services to jobs format
   useEffect(() => {
@@ -237,25 +259,32 @@ const Index = () => {
         return;
       }
 
-      // Get the service provider's user_id
-      const { data: serviceData, error: serviceError } = await supabase
-        .from('services')
-        .select('user_id, profiles(name, avatar_url)')
-        .eq('id', service.id)
-        .single();
-
-      if (serviceError || !serviceData) {
-        console.error('Error fetching service data:', serviceError);
+      // Get the service provider's user_id directly from the service
+      const serviceUserId = service.user_id;
+      if (!serviceUserId) {
+        console.error('No user_id found in service:', service);
         toast({
           title: "Error",
-          description: "Could not start chat with this provider",
+          description: "Could not find service provider information",
           variant: "destructive"
         });
         return;
       }
 
+      // Get profile information separately
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('name, avatar_url')
+        .eq('user_id', serviceUserId)
+        .single();
+
+      if (profileError) {
+        console.warn('Could not fetch profile data:', profileError);
+        // Continue without profile data
+      }
+
       // Start or get existing chat
-      const chatId = await startChat(serviceData.user_id);
+      const chatId = await startChat(serviceUserId);
       if (!chatId) {
         toast({
           title: "Error",
@@ -265,19 +294,11 @@ const Index = () => {
         return;
       }
 
-      // Set up the selected chat properly with proper null checking
-      const profiles = serviceData.profiles;
-      const profileData = profiles && 
-        profiles !== null && 
-        typeof profiles === 'object' && 
-        'name' in profiles 
-        ? profiles as { name: string; avatar_url?: string }
-        : null;
-
+      // Set up the selected chat
       setSelectedChat({
         chatId: chatId,
-        recipientId: serviceData.user_id,
-        recipientName: profileData?.name || 'Service Provider',
+        recipientId: serviceUserId,
+        recipientName: profileData?.name || service.provider || 'Service Provider',
         recipientAvatar: profileData?.avatar_url
       });
       setActiveTab('chats');
@@ -287,6 +308,33 @@ const Index = () => {
         title: "Error",
         description: "Failed to start chat",
         variant: "destructive"
+      });
+    }
+  };
+
+  const handleDeletePost = async (serviceId: string) => {
+    try {
+      const { error } = await supabase
+        .from('services')
+        .delete()
+        .eq('id', serviceId)
+        .eq('user_id', currentUserId); // Ensure only the owner can delete
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Post deleted successfully",
+      });
+
+      // Refresh services to update the UI
+      refreshServices();
+    } catch (error) {
+      console.error('Error deleting post:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete post",
+        variant: "destructive",
       });
     }
   };
@@ -601,60 +649,101 @@ const Index = () => {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {jobsToShow.map((job) => (
-                <Card key={job.id} className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2 bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                  <CardHeader className="pb-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className={`w-12 h-12 ${job.color} rounded-xl flex items-center justify-center`}>
-                          <Code className="w-6 h-6 text-white" />
+              {jobsToShow.map((job) => {
+                // Find the original service to get user_id
+                const originalService = services.find(s => s.id === job.id);
+                const isOwner = currentUserId && originalService?.user_id === currentUserId;
+
+                return (
+                  <Card key={job.id} className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2 bg-white/80 backdrop-blur-sm border-0 shadow-lg">
+                    <CardHeader className="pb-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div className={`w-12 h-12 ${job.color} rounded-xl flex items-center justify-center`}>
+                            <Code className="w-6 h-6 text-white" />
+                          </div>
+                          <div>
+                            <CardTitle className="text-lg group-hover:text-neighborlly-purple transition-colors">
+                              {job.title}
+                            </CardTitle>
+                            <p className="text-sm text-gray-600">{job.provider}</p>
+                          </div>
                         </div>
+                        <div className="flex items-center space-x-1">
+                          <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                          <span className="text-sm font-medium">{job.rating}</span>
+                          <span className="text-xs text-gray-500">({job.reviews})</span>
+                        </div>
+                      </div>
+                      {isOwner && (
+                        <div className="flex justify-end">
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
+                              >
+                                <Trash2 className="w-4 h-4 mr-1" />
+                                Delete Post
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Post</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to delete this post? This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => handleDeletePost(job.id)}
+                                  className="bg-red-600 hover:bg-red-700"
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      <CardDescription className="mb-4 text-gray-600">
+                        {job.description}
+                      </CardDescription>
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        {job.tags?.map((tag: string) => (
+                          <Badge key={tag} variant="secondary" className="bg-gray-100 text-gray-700 hover:bg-gray-200">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between">
                         <div>
-                          <CardTitle className="text-lg group-hover:text-neighborlly-purple transition-colors">
-                            {job.title}
-                          </CardTitle>
-                          <p className="text-sm text-gray-600">{job.provider}</p>
+                          <div className="flex items-center text-sm text-gray-500 mb-1">
+                            <MapPin className="w-3 h-3 mr-1" />
+                            {job.distance || 'Distance unknown'}
+                          </div>
+                          <div className="flex items-center text-lg font-bold text-neighborlly-purple">
+                            {job.price}/hour
+                          </div>
                         </div>
+                        {!isOwner && (
+                          <Button 
+                            className="bg-gradient-neighborlly hover:opacity-90 rounded-xl"
+                            onClick={() => handleChatClick({ ...job, user_id: originalService?.user_id })}
+                          >
+                            <MessageCircle className="w-4 h-4 mr-2" />
+                            Chat
+                          </Button>
+                        )}
                       </div>
-                      <div className="flex items-center space-x-1">
-                        <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                        <span className="text-sm font-medium">{job.rating}</span>
-                        <span className="text-xs text-gray-500">({job.reviews})</span>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription className="mb-4 text-gray-600">
-                      {job.description}
-                    </CardDescription>
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {job.tags?.map((tag: string) => (
-                        <Badge key={tag} variant="secondary" className="bg-gray-100 text-gray-700 hover:bg-gray-200">
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center text-sm text-gray-500 mb-1">
-                          <MapPin className="w-3 h-3 mr-1" />
-                          {job.distance || 'Distance unknown'}
-                        </div>
-                        <div className="flex items-center text-lg font-bold text-neighborlly-purple">
-                          {job.price}/hour
-                        </div>
-                      </div>
-                      <Button 
-                        className="bg-gradient-neighborlly hover:opacity-90 rounded-xl"
-                        onClick={() => handleChatClick(job)}
-                      >
-                        <MessageCircle className="w-4 h-4 mr-2" />
-                        Chat
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
 
             {!servicesLoading && jobsToShow.length === 0 && searchQuery && (
