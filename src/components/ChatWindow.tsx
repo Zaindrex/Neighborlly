@@ -60,19 +60,6 @@ const ChatWindow = ({
     getCurrentUser();
   }, []);
 
-  useEffect(() => {
-    // Mark unread messages as read when entering chat
-    if (currentUserId && messages.length > 0) {
-      const unreadMessages = messages
-        .filter(msg => msg.recipient_id === currentUserId && !msg.is_read)
-        .map(msg => msg.id);
-      
-      if (unreadMessages.length > 0) {
-        markAsRead(unreadMessages);
-      }
-    }
-  }, [messages, currentUserId, markAsRead]);
-
   const handleSendMessage = async () => {
     if (!newMessage.trim() || sending) return;
 
@@ -142,8 +129,9 @@ const ChatWindow = ({
       <CardHeader className="border-b p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <Button variant="ghost" size="sm" onClick={onBack}>
+            <Button variant="ghost" size="sm" onClick={onBack} className="hover:bg-gray-100">
               <ArrowLeft className="w-4 h-4" />
+              <span className="ml-1 hidden sm:inline">Back to chats</span>
             </Button>
             <Avatar className="w-10 h-10">
               <AvatarImage src={recipientAvatar} />
@@ -194,14 +182,14 @@ const ChatWindow = ({
                         : 'bg-gray-100 text-gray-900'
                     }`}
                   >
-                    <p className="text-sm">{message.content}</p>
+                    <p className="text-sm break-words">{message.content}</p>
                   </div>
                   <div className={`flex items-center mt-1 space-x-1 ${isOwn ? 'justify-end' : 'justify-start'}`}>
                     <p className="text-xs text-gray-500">
                       {formatTime(message.created_at)}
                     </p>
                     {isOwn && (
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-500" title={message.is_read ? 'Read' : 'Delivered'}>
                         {message.is_read ? '✓✓' : '✓'}
                       </span>
                     )}
