@@ -190,14 +190,52 @@ export const useChats = () => {
     }
   };
 
+  const validateRecipient = async (recipientId: string) => {
+    try {
+      console.log('Validating recipient ID:', recipientId);
+      
+      // First check if recipient exists in profiles table
+      const { data: recipientProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('user_id, name')
+        .eq('user_id', recipientId)
+        .single();
+
+      console.log('Recipient profile found:', recipientProfile);
+
+      if (profileError || !recipientProfile) {
+        console.error('Recipient profile not found:', profileError);
+        throw new Error('Recipient not found in profiles');
+      }
+
+      // Then check if recipient exists in auth.users (this will be limited by RLS)
+      const { data: authUserResponse, error: authError } = await supabase.auth.getUser();
+      
+      if (authError || !authUserResponse.user) {
+        console.error('Current user not authenticated:', authError);
+        throw new Error('Current user not authenticated');
+      }
+
+      console.log('Recipient validation successful');
+      return {
+        exists: true,
+        profile: recipientProfile
+      };
+    } catch (error) {
+      console.error('Error validating recipient:', error);
+      return {
+        exists: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  };
+
   useEffect(() => {
     fetchChats();
   }, [fetchChats]);
 
   // Set up real-time subscription for chat updates
   useEffect(() => {
-    const { data: { user } } = supabase.auth.getUser();
-    
     const channel = supabase
       .channel('chats-updates')
       .on(
@@ -234,6 +272,7 @@ export const useChats = () => {
     loading,
     refreshChats: fetchChats,
     startChat,
-    deleteChat
+    deleteChat,
+    validateRecipient
   };
 };
