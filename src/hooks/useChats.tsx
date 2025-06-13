@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -33,7 +33,7 @@ export const useChats = () => {
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
-  const fetchChats = async () => {
+  const fetchChats = useCallback(async () => {
     try {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) {
@@ -100,7 +100,7 @@ export const useChats = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   const startChat = async (recipientId: string) => {
     try {
@@ -174,7 +174,7 @@ export const useChats = () => {
 
   useEffect(() => {
     fetchChats();
-  }, []);
+  }, [fetchChats]);
 
   // Set up real-time subscription for chat updates
   useEffect(() => {
@@ -206,13 +206,27 @@ export const useChats = () => {
           fetchChats(); // Refresh chats to update last message and unread count
         }
       )
-      .subscribe();
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages'
+        },
+        (payload) => {
+          console.log('Message read status updated:', payload);
+          fetchChats(); // Refresh chats to update unread count
+        }
+      )
+      .subscribe((status) => {
+        console.log('Chats real-time subscription status:', status);
+      });
 
     return () => {
       console.log('Cleaning up chats real-time subscription');
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [fetchChats]);
 
   return {
     chats,

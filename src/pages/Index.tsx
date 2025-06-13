@@ -55,7 +55,6 @@ const Index = () => {
   const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showMap, setShowMap] = useState(false);
-  const [showDebug, setShowDebug] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
   // Geolocation states
@@ -381,14 +380,6 @@ const Index = () => {
               </h1>
             </div>
             <div className="flex items-center space-x-4">
-              <Button
-                variant="ghost"
-                onClick={() => setShowDebug(!showDebug)}
-                className="p-2 text-xs"
-                title="Toggle debug"
-              >
-                DEBUG
-              </Button>
               {locationPermissionGranted && (
                 <div className="flex items-center space-x-2">
                   <Button
@@ -595,8 +586,6 @@ const Index = () => {
 
       {/* Content Area */}
       <div className="container mx-auto px-4 pb-16">
-        {showDebug && <ServicesDebug />}
-        
         {activeTab === 'discover' && (
           <div className="space-y-6">
             {/* Map Component */}

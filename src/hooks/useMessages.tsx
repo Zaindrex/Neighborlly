@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Message } from './useChats';
@@ -7,9 +7,10 @@ import { Message } from './useChats';
 export const useMessages = (chatId: string | null) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
   const { toast } = useToast();
 
-  const fetchMessages = async () => {
+  const fetchMessages = useCallback(async () => {
     if (!chatId) return;
 
     setLoading(true);
@@ -33,15 +34,17 @@ export const useMessages = (chatId: string | null) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [chatId, toast]);
 
-  const sendMessage = async (content: string, recipientId: string) => {
-    if (!chatId || !content.trim()) return;
+  const sendMessage = async (content: string, recipientId: string, retryCount = 0) => {
+    if (!chatId || !content.trim() || sending) return false;
 
+    setSending(true);
     try {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) throw new Error('User not authenticated');
 
+      // Insert the message
       const { data, error } = await supabase
         .from('messages')
         .insert([
@@ -58,20 +61,36 @@ export const useMessages = (chatId: string | null) => {
       if (error) throw error;
 
       // Update chat last_message_at
-      await supabase
+      const { error: chatUpdateError } = await supabase
         .from('chats')
         .update({ last_message_at: new Date().toISOString() })
         .eq('id', chatId);
 
+      if (chatUpdateError) {
+        console.warn('Failed to update chat timestamp:', chatUpdateError);
+      }
+
       console.log('Message sent successfully:', data);
+      return true;
       
     } catch (error) {
       console.error('Error sending message:', error);
+      
+      // Retry logic - attempt up to 2 retries
+      if (retryCount < 2) {
+        console.log(`Retrying message send, attempt ${retryCount + 1}`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // Progressive delay
+        return sendMessage(content, recipientId, retryCount + 1);
+      }
+      
       toast({
         title: "Error",
-        description: "Failed to send message",
+        description: "Failed to send message after multiple attempts",
         variant: "destructive",
       });
+      return false;
+    } finally {
+      setSending(false);
     }
   };
 
@@ -99,7 +118,7 @@ export const useMessages = (chatId: string | null) => {
 
   useEffect(() => {
     fetchMessages();
-  }, [chatId]);
+  }, [fetchMessages]);
 
   // Set up real-time subscription for new messages
   useEffect(() => {
@@ -146,7 +165,9 @@ export const useMessages = (chatId: string | null) => {
           );
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Real-time subscription status:', status);
+      });
 
     return () => {
       console.log('Cleaning up real-time subscription');
@@ -157,6 +178,7 @@ export const useMessages = (chatId: string | null) => {
   return {
     messages,
     loading,
+    sending,
     sendMessage,
     markAsRead,
     refreshMessages: fetchMessages
