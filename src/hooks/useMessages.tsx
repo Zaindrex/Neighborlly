@@ -1,26 +1,14 @@
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Message } from './useChats';
-import { notificationService } from '@/services/notificationService';
 
 export const useMessages = (chatId: string | null) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const subscriptionRef = useRef<any>(null);
   const { toast } = useToast();
-
-  // Get current user on mount
-  useEffect(() => {
-    const getCurrentUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setCurrentUserId(user?.id || null);
-    };
-    getCurrentUser();
-  }, []);
 
   const fetchMessages = useCallback(async () => {
     if (!chatId) return;
@@ -50,11 +38,14 @@ export const useMessages = (chatId: string | null) => {
   }, [chatId, toast]);
 
   const sendMessage = async (content: string, recipientId: string, retryCount = 0) => {
-    if (!chatId || !content.trim() || sending || !currentUserId) return false;
+    if (!chatId || !content.trim() || sending) return false;
 
     setSending(true);
     try {
-      console.log('Sending message:', { chatId, content, recipientId, senderId: currentUserId });
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) throw new Error('User not authenticated');
+
+      console.log('Sending message:', { chatId, content, recipientId, senderId: user.id });
 
       // First verify the recipient exists in profiles table
       const { data: recipientProfile, error: profileError } = await supabase
@@ -74,7 +65,7 @@ export const useMessages = (chatId: string | null) => {
         .insert([
           {
             chat_id: chatId,
-            sender_id: currentUserId,
+            sender_id: user.id,
             recipient_id: recipientId,
             content: content.trim()
           }
@@ -96,6 +87,13 @@ export const useMessages = (chatId: string | null) => {
         console.warn('Failed to update chat timestamp:', chatUpdateError);
       }
 
+      // Add message to local state immediately for better UX
+      setMessages(prev => {
+        const exists = prev.some(msg => msg.id === data.id);
+        if (exists) return prev;
+        return [...prev, data];
+      });
+
       return true;
       
     } catch (error) {
@@ -104,7 +102,7 @@ export const useMessages = (chatId: string | null) => {
       // Retry logic - attempt up to 2 retries
       if (retryCount < 2) {
         console.log(`Retrying message send, attempt ${retryCount + 1}`);
-        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // Progressive delay
         return sendMessage(content, recipientId, retryCount + 1);
       }
       
@@ -120,49 +118,26 @@ export const useMessages = (chatId: string | null) => {
   };
 
   const markAsRead = async (messageIds: string[]) => {
-    if (messageIds.length === 0 || !currentUserId) return;
+    if (messageIds.length === 0) return;
 
     try {
       const { error } = await supabase
         .from('messages')
         .update({ is_read: true })
-        .in('id', messageIds)
-        .eq('recipient_id', currentUserId); // Only mark messages addressed to current user
+        .in('id', messageIds);
 
       if (error) throw error;
-
-      console.log('Marked messages as read:', messageIds);
 
       // Update local state
       setMessages(prev => 
         prev.map(msg => 
-          messageIds.includes(msg.id) && msg.recipient_id === currentUserId 
-            ? { ...msg, is_read: true } 
-            : msg
+          messageIds.includes(msg.id) ? { ...msg, is_read: true } : msg
         )
       );
     } catch (error) {
       console.error('Error marking messages as read:', error);
     }
   };
-
-  // Auto-mark messages as read when user views chat
-  useEffect(() => {
-    if (currentUserId && messages.length > 0 && chatId) {
-      const unreadMessages = messages
-        .filter(msg => 
-          msg.recipient_id === currentUserId && 
-          !msg.is_read && 
-          msg.sender_id !== currentUserId
-        )
-        .map(msg => msg.id);
-      
-      if (unreadMessages.length > 0) {
-        console.log('Auto-marking messages as read:', unreadMessages);
-        markAsRead(unreadMessages);
-      }
-    }
-  }, [messages, currentUserId, chatId]);
 
   useEffect(() => {
     fetchMessages();
@@ -171,12 +146,6 @@ export const useMessages = (chatId: string | null) => {
   // Set up real-time subscription for new messages
   useEffect(() => {
     if (!chatId) return;
-
-    // Clean up existing subscription
-    if (subscriptionRef.current) {
-      console.log('Cleaning up existing subscription');
-      supabase.removeChannel(subscriptionRef.current);
-    }
 
     console.log('Setting up real-time subscription for chat:', chatId);
 
@@ -194,12 +163,11 @@ export const useMessages = (chatId: string | null) => {
           table: 'messages',
           filter: `chat_id=eq.${chatId}`
         },
-        async (payload) => {
+        (payload) => {
           console.log('New message received via subscription:', payload);
           const newMessage = payload.new as Message;
-          
-          // Add message to state immediately
           setMessages(prev => {
+            // Check if message already exists to prevent duplicates
             const exists = prev.some(msg => msg.id === newMessage.id);
             if (exists) {
               console.log('Message already exists, skipping duplicate');
@@ -208,37 +176,6 @@ export const useMessages = (chatId: string | null) => {
             console.log('Adding new message to state');
             return [...prev, newMessage];
           });
-
-          // Show notification if message is from someone else and user has permission
-          if (newMessage.sender_id !== currentUserId && currentUserId) {
-            // Get sender profile for notification
-            try {
-              const { data: senderProfile } = await supabase
-                .from('profiles')
-                .select('name')
-                .eq('user_id', newMessage.sender_id)
-                .single();
-
-              const senderName = senderProfile?.name || 'Someone';
-              
-              // Show toast notification
-              toast({
-                title: `New message from ${senderName}`,
-                description: newMessage.content.substring(0, 50) + (newMessage.content.length > 50 ? '...' : ''),
-              });
-
-              // Show browser notification and play sound
-              await notificationService.requestPermission();
-              notificationService.showNotification({
-                title: 'New Message',
-                body: `${senderName}: ${newMessage.content.substring(0, 100)}`,
-                tag: `chat-${chatId}`
-              });
-              notificationService.playNotificationSound();
-            } catch (error) {
-              console.error('Error showing notification:', error);
-            }
-          }
         }
       )
       .on(
@@ -268,24 +205,17 @@ export const useMessages = (chatId: string | null) => {
           // Try to resubscribe after a delay
           setTimeout(() => {
             console.log('Attempting to resubscribe...');
-            if (subscriptionRef.current) {
-              supabase.removeChannel(subscriptionRef.current);
-            }
+            channel.unsubscribe();
             // The useEffect will recreate the subscription
           }, 2000);
         }
       });
 
-    subscriptionRef.current = channel;
-
     return () => {
       console.log('Cleaning up real-time subscription');
-      if (subscriptionRef.current) {
-        supabase.removeChannel(subscriptionRef.current);
-        subscriptionRef.current = null;
-      }
+      channel.unsubscribe();
     };
-  }, [chatId, currentUserId, toast]);
+  }, [chatId]);
 
   return {
     messages,
