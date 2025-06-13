@@ -230,6 +230,9 @@ const ChatWindow = ({
             )}
           </Button>
         </div>
+        {sending && (
+          <p className="text-xs text-gray-500 mt-1 text-center">Sending message...</p>
+        )}
       </div>
     </Card>
   );

@@ -38,6 +38,7 @@ export const useChats = () => {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) {
         console.error('User not authenticated:', userError);
+        setLoading(false);
         return;
       }
 
@@ -49,6 +50,7 @@ export const useChats = () => {
 
       if (error) {
         console.error('Error fetching chats:', error);
+        setLoading(false);
         return;
       }
 
@@ -70,7 +72,7 @@ export const useChats = () => {
             .eq('chat_id', chat.id)
             .order('created_at', { ascending: false })
             .limit(1)
-            .single();
+            .maybeSingle();
 
           // Count unread messages
           const { count: unreadCount } = await supabase
@@ -114,7 +116,7 @@ export const useChats = () => {
         .or(
           `and(participant_1.eq.${user.id},participant_2.eq.${recipientId}),and(participant_1.eq.${recipientId},participant_2.eq.${user.id})`
         )
-        .single();
+        .maybeSingle();
 
       if (existingChat) {
         return existingChat.id;
@@ -176,56 +178,13 @@ export const useChats = () => {
     fetchChats();
   }, [fetchChats]);
 
-  // Set up real-time subscription for chat updates
+  // Simple periodic refresh instead of complex real-time subscriptions
   useEffect(() => {
-    console.log('Setting up real-time subscription for chats');
+    const interval = setInterval(() => {
+      fetchChats();
+    }, 10000); // Refresh every 10 seconds
 
-    const channel = supabase
-      .channel('chats-updates')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'chats'
-        },
-        (payload) => {
-          console.log('Chat updated:', payload);
-          fetchChats(); // Refresh chats when any chat is updated
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages'
-        },
-        (payload) => {
-          console.log('New message in any chat:', payload);
-          fetchChats(); // Refresh chats to update last message and unread count
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'messages'
-        },
-        (payload) => {
-          console.log('Message read status updated:', payload);
-          fetchChats(); // Refresh chats to update unread count
-        }
-      )
-      .subscribe((status) => {
-        console.log('Chats real-time subscription status:', status);
-      });
-
-    return () => {
-      console.log('Cleaning up chats real-time subscription');
-      supabase.removeChannel(channel);
-    };
+    return () => clearInterval(interval);
   }, [fetchChats]);
 
   return {

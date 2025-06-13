@@ -23,6 +23,7 @@ export const useMessages = (chatId: string | null) => {
 
       if (error) throw error;
 
+      console.log('Fetched messages:', data);
       setMessages(data || []);
     } catch (error) {
       console.error('Error fetching messages:', error);
@@ -44,6 +45,20 @@ export const useMessages = (chatId: string | null) => {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) throw new Error('User not authenticated');
 
+      console.log('Sending message:', { chatId, content, recipientId, senderId: user.id });
+
+      // First verify the recipient exists in profiles table
+      const { data: recipientProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('user_id')
+        .eq('user_id', recipientId)
+        .single();
+
+      if (profileError || !recipientProfile) {
+        console.error('Recipient profile not found:', profileError);
+        throw new Error('Recipient not found');
+      }
+
       // Insert the message
       const { data, error } = await supabase
         .from('messages')
@@ -60,6 +75,8 @@ export const useMessages = (chatId: string | null) => {
 
       if (error) throw error;
 
+      console.log('Message sent successfully:', data);
+
       // Update chat last_message_at
       const { error: chatUpdateError } = await supabase
         .from('chats')
@@ -70,7 +87,13 @@ export const useMessages = (chatId: string | null) => {
         console.warn('Failed to update chat timestamp:', chatUpdateError);
       }
 
-      console.log('Message sent successfully:', data);
+      // Add message to local state immediately for better UX
+      setMessages(prev => {
+        const exists = prev.some(msg => msg.id === data.id);
+        if (exists) return prev;
+        return [...prev, data];
+      });
+
       return true;
       
     } catch (error) {
@@ -85,7 +108,7 @@ export const useMessages = (chatId: string | null) => {
       
       toast({
         title: "Error",
-        description: "Failed to send message after multiple attempts",
+        description: `Failed to send message: ${error instanceof Error ? error.message : 'Unknown error'}`,
         variant: "destructive",
       });
       return false;
@@ -127,7 +150,11 @@ export const useMessages = (chatId: string | null) => {
     console.log('Setting up real-time subscription for chat:', chatId);
 
     const channel = supabase
-      .channel(`messages:${chatId}`)
+      .channel(`messages-${chatId}`, {
+        config: {
+          broadcast: { self: true }
+        }
+      })
       .on(
         'postgres_changes',
         {
@@ -137,12 +164,16 @@ export const useMessages = (chatId: string | null) => {
           filter: `chat_id=eq.${chatId}`
         },
         (payload) => {
-          console.log('New message received:', payload);
+          console.log('New message received via subscription:', payload);
           const newMessage = payload.new as Message;
           setMessages(prev => {
             // Check if message already exists to prevent duplicates
             const exists = prev.some(msg => msg.id === newMessage.id);
-            if (exists) return prev;
+            if (exists) {
+              console.log('Message already exists, skipping duplicate');
+              return prev;
+            }
+            console.log('Adding new message to state');
             return [...prev, newMessage];
           });
         }
@@ -156,7 +187,7 @@ export const useMessages = (chatId: string | null) => {
           filter: `chat_id=eq.${chatId}`
         },
         (payload) => {
-          console.log('Message updated:', payload);
+          console.log('Message updated via subscription:', payload);
           const updatedMessage = payload.new as Message;
           setMessages(prev => 
             prev.map(msg => 
@@ -165,13 +196,24 @@ export const useMessages = (chatId: string | null) => {
           );
         }
       )
-      .subscribe((status) => {
-        console.log('Real-time subscription status:', status);
+      .subscribe((status, err) => {
+        console.log('Real-time subscription status:', status, err);
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to messages channel');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('Channel error:', err);
+          // Try to resubscribe after a delay
+          setTimeout(() => {
+            console.log('Attempting to resubscribe...');
+            channel.unsubscribe();
+            // The useEffect will recreate the subscription
+          }, 2000);
+        }
       });
 
     return () => {
       console.log('Cleaning up real-time subscription');
-      supabase.removeChannel(channel);
+      channel.unsubscribe();
     };
   }, [chatId]);
 
