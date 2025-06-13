@@ -76,6 +76,12 @@ const ChatWindow = ({
   const handleSendMessage = async () => {
     if (!newMessage.trim() || sending) return;
 
+    // Validate recipient before sending
+    if (!recipientId) {
+      console.error('No recipient ID provided');
+      return;
+    }
+
     const messageContent = newMessage.trim();
     setNewMessage(''); // Clear input immediately for better UX
     
@@ -136,7 +142,7 @@ const ChatWindow = ({
       <CardHeader className="border-b p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <Button variant="ghost" size="sm" onClick={onBack} className="lg:hidden">
+            <Button variant="ghost" size="sm" onClick={onBack}>
               <ArrowLeft className="w-4 h-4" />
             </Button>
             <Avatar className="w-10 h-10">

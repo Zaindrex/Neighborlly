@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -33,6 +34,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import UserProfile from '@/components/UserProfile';
 import ChatWindow from '@/components/ChatWindow';
+import ChatList from '@/components/ChatList';
 import PostServiceForm from '@/components/PostServiceForm';
 import LocationPermission from '@/components/LocationPermission';
 import GeofenceMap from '@/components/GeofenceMap';
@@ -40,7 +42,7 @@ import ServicesDebug from '@/components/ServicesDebug';
 import { geolocationService, Location, Job } from '@/services/geolocationService';
 import { useServices } from '@/hooks/useServices';
 import { useActiveUsers } from '@/hooks/useActiveUsers';
-import { useChats } from '@/hooks/useChats';
+import { useChats, Chat } from '@/hooks/useChats';
 import { supabase } from '@/integrations/supabase/client';
 
 interface SelectedChat {

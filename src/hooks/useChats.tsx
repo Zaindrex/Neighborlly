@@ -84,7 +84,11 @@ export const useChats = () => {
 
           return {
             ...chat,
-            other_user: profile || { id: otherUserId, name: 'Unknown User' },
+            other_user: profile ? {
+              id: otherUserId,
+              name: profile.name || 'Unknown User',
+              avatar_url: profile.avatar_url
+            } : { id: otherUserId, name: 'Unknown User' },
             unread_count: unreadCount || 0,
             last_message: latestMessage?.content || ''
           };
@@ -108,6 +112,18 @@ export const useChats = () => {
     try {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) throw new Error('User not authenticated');
+
+      // Verify recipient exists
+      const { data: recipientProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('user_id, name')
+        .eq('user_id', recipientId)
+        .single();
+
+      if (profileError || !recipientProfile) {
+        console.error('Recipient profile not found:', profileError);
+        throw new Error('Recipient not found');
+      }
 
       // Check if chat already exists
       const { data: existingChat } = await supabase
@@ -142,7 +158,7 @@ export const useChats = () => {
       console.error('Error starting chat:', error);
       toast({
         title: "Error",
-        description: "Failed to start chat",
+        description: error instanceof Error ? error.message : "Failed to start chat",
         variant: "destructive",
       });
       return null;
@@ -178,13 +194,39 @@ export const useChats = () => {
     fetchChats();
   }, [fetchChats]);
 
-  // Simple periodic refresh instead of complex real-time subscriptions
+  // Set up real-time subscription for chat updates
   useEffect(() => {
-    const interval = setInterval(() => {
-      fetchChats();
-    }, 10000); // Refresh every 10 seconds
+    const { data: { user } } = supabase.auth.getUser();
+    
+    const channel = supabase
+      .channel('chats-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'chats'
+        },
+        () => {
+          fetchChats(); // Refresh when chats change
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'messages'
+        },
+        () => {
+          fetchChats(); // Refresh when messages change to update last message
+        }
+      )
+      .subscribe();
 
-    return () => clearInterval(interval);
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [fetchChats]);
 
   return {
